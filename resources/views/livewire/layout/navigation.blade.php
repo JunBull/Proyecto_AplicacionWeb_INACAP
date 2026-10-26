@@ -50,6 +50,15 @@ new class extends Component
                         <x-nav-link :href="route('panol.etiquetas')" :active="request()->routeIs('panol.etiquetas')" wire:navigate>
                             Etiquetas
                         </x-nav-link>
+                        <x-nav-link :href="route('panol.proveedores')" :active="request()->routeIs('panol.proveedores')" wire:navigate>
+                            Proveedores
+                        </x-nav-link>
+                        <x-nav-link :href="route('panol.cotizaciones')" :active="request()->routeIs('panol.cotizaciones')" wire:navigate>
+                            Cotizaciones
+                        </x-nav-link>
+                        <x-nav-link :href="route('panol.compras')" :active="request()->routeIs('panol.compras')" wire:navigate>
+                            Compras / OCR
+                        </x-nav-link>
                     @else
                         <x-nav-link :href="route('docente.equipos')" :active="request()->routeIs('docente.equipos')" wire:navigate>
                             Catálogo de Equipos
@@ -106,6 +115,32 @@ new class extends Component
             <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')" wire:navigate>
                 {{ __('Dashboard') }}
             </x-responsive-nav-link>
+            @if(auth()->user()->rol !== 'docente')
+                <x-responsive-nav-link :href="route('panol.equipos')" :active="request()->routeIs('panol.equipos')" wire:navigate>
+                    Equipos
+                </x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('panol.inventario')" :active="request()->routeIs('panol.inventario')" wire:navigate>
+                    Inventario
+                </x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('panol.mantenimientos')" :active="request()->routeIs('panol.mantenimientos')" wire:navigate>
+                    Mantenimientos
+                </x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('panol.bajas')" :active="request()->routeIs('panol.bajas')" wire:navigate>
+                    Bajas / Reemplazos
+                </x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('panol.etiquetas')" :active="request()->routeIs('panol.etiquetas')" wire:navigate>
+                    Etiquetas
+                </x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('panol.proveedores')" :active="request()->routeIs('panol.proveedores')" wire:navigate>
+                    Proveedores
+                </x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('panol.cotizaciones')" :active="request()->routeIs('panol.cotizaciones')" wire:navigate>
+                    Cotizaciones
+                </x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('panol.compras')" :active="request()->routeIs('panol.compras')" wire:navigate>
+                    Compras / OCR
+                </x-responsive-nav-link>
+            @endif
         </div>
 
         <!-- Responsive Settings Options -->

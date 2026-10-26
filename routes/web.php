@@ -22,6 +22,9 @@ Route::middleware(['auth', 'role:administrador'])->prefix('admin')->name('admin.
     Route::get('/parametros', fn () => response()->json(['status' => 'ok', 'modulo' => 'configuracion_parametros']))->name('parametros');
     Route::get('/documentos/{id}', fn ($id) => response()->json(['status' => 'ok', 'documento_id' => $id]))->name('documentos.show');
     Volt::route('/bajas', 'pages.bajas.index')->name('bajas');
+    Volt::route('/proveedores', 'pages.proveedores.index')->name('proveedores');
+    Volt::route('/cotizaciones', 'pages.cotizaciones.index')->name('cotizaciones');
+    Volt::route('/compras', 'pages.compras.index')->name('compras');
 });
 
 // Módulo Pañol: Encargado de Pañol y Administrador
@@ -32,6 +35,9 @@ Route::middleware(['auth', 'role:encargado_panol,administrador'])->prefix('panol
     Volt::route('/mantenimientos', 'pages.mantenimientos.index')->name('mantenimientos');
     Volt::route('/bajas', 'pages.bajas.index')->name('bajas');
     Volt::route('/etiquetas', 'pages.etiquetas.index')->name('etiquetas');
+    Volt::route('/proveedores', 'pages.proveedores.index')->name('proveedores');
+    Volt::route('/cotizaciones', 'pages.cotizaciones.index')->name('cotizaciones');
+    Volt::route('/compras', 'pages.compras.index')->name('compras');
 });
 
 // Módulo Docente: Docente, Pañolero y Administrador
