@@ -45,4 +45,18 @@ class DetalleSolicitud extends Model
     {
         return $this->belongsTo(Equipo::class, 'equipo_id');
     }
+
+    public function esRetornable(): bool
+    {
+        if ($this->equipo_id !== null) {
+            return true;
+        }
+
+        return (bool) ($this->insumo?->es_retornable ?? false);
+    }
+
+    public function getCantidadPendienteAttribute(): float
+    {
+        return max(0.0, (float) $this->cantidad_entregada - (float) $this->cantidad_devuelta);
+    }
 }

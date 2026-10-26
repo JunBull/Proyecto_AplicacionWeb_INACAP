@@ -72,10 +72,7 @@ class CasoPruebaCP02Test extends TestCase
         $response = $this->actingAs($panolero)->get('/panol/despacho');
 
         $response->assertOk();
-        $response->assertJson([
-            'status' => 'ok',
-            'modulo' => 'despacho_meson',
-        ]);
+        $response->assertSeeLivewire('pages.despacho.index');
     }
 
     public function test_cp02_docente_no_puede_acceder_a_documentos_administrativos_restringidos(): void

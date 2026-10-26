@@ -35,6 +35,9 @@ new class extends Component
                     </x-nav-link>
 
                     @if(auth()->user()->rol !== 'docente')
+                        <x-nav-link :href="route('panol.despacho')" :active="request()->routeIs('panol.despacho')" wire:navigate>
+                            Despacho
+                        </x-nav-link>
                         <x-nav-link :href="route('panol.equipos')" :active="request()->routeIs('panol.equipos')" wire:navigate>
                             Equipos
                         </x-nav-link>
@@ -60,6 +63,9 @@ new class extends Component
                             Compras / OCR
                         </x-nav-link>
                     @else
+                        <x-nav-link :href="route('docente.solicitudes')" :active="request()->routeIs('docente.solicitudes')" wire:navigate>
+                            Mis Solicitudes
+                        </x-nav-link>
                         <x-nav-link :href="route('docente.equipos')" :active="request()->routeIs('docente.equipos')" wire:navigate>
                             Catálogo de Equipos
                         </x-nav-link>
@@ -116,6 +122,9 @@ new class extends Component
                 {{ __('Dashboard') }}
             </x-responsive-nav-link>
             @if(auth()->user()->rol !== 'docente')
+                <x-responsive-nav-link :href="route('panol.despacho')" :active="request()->routeIs('panol.despacho')" wire:navigate>
+                    Despacho
+                </x-responsive-nav-link>
                 <x-responsive-nav-link :href="route('panol.equipos')" :active="request()->routeIs('panol.equipos')" wire:navigate>
                     Equipos
                 </x-responsive-nav-link>
@@ -139,6 +148,13 @@ new class extends Component
                 </x-responsive-nav-link>
                 <x-responsive-nav-link :href="route('panol.compras')" :active="request()->routeIs('panol.compras')" wire:navigate>
                     Compras / OCR
+                </x-responsive-nav-link>
+            @else
+                <x-responsive-nav-link :href="route('docente.solicitudes')" :active="request()->routeIs('docente.solicitudes')" wire:navigate>
+                    Mis Solicitudes
+                </x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('docente.equipos')" :active="request()->routeIs('docente.equipos')" wire:navigate>
+                    Catálogo de Equipos
                 </x-responsive-nav-link>
             @endif
         </div>

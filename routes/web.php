@@ -29,7 +29,7 @@ Route::middleware(['auth', 'role:administrador'])->prefix('admin')->name('admin.
 
 // Módulo Pañol: Encargado de Pañol y Administrador
 Route::middleware(['auth', 'role:encargado_panol,administrador'])->prefix('panol')->name('panol.')->group(function () {
-    Route::get('/despacho', fn () => response()->json(['status' => 'ok', 'modulo' => 'despacho_meson']))->name('despacho');
+    Volt::route('/despacho', 'pages.despacho.index')->name('despacho');
     Volt::route('/equipos', 'pages.equipos.index')->name('equipos');
     Volt::route('/inventario', 'pages.inventario.index')->name('inventario');
     Volt::route('/mantenimientos', 'pages.mantenimientos.index')->name('mantenimientos');
@@ -42,7 +42,7 @@ Route::middleware(['auth', 'role:encargado_panol,administrador'])->prefix('panol
 
 // Módulo Docente: Docente, Pañolero y Administrador
 Route::middleware(['auth', 'role:docente,encargado_panol,administrador'])->prefix('docente')->name('docente.')->group(function () {
-    Route::get('/solicitudes', fn () => response()->json(['status' => 'ok', 'modulo' => 'solicitudes_prestamo']))->name('solicitudes');
+    Volt::route('/solicitudes', 'pages.solicitudes.index')->name('solicitudes');
     Volt::route('/equipos', 'pages.equipos.index')->name('equipos');
 });
 
