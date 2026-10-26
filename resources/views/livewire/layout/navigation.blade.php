@@ -33,6 +33,28 @@ new class extends Component
                     <x-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')" wire:navigate>
                         {{ __('Dashboard') }}
                     </x-nav-link>
+
+                    @if(auth()->user()->rol !== 'docente')
+                        <x-nav-link :href="route('panol.equipos')" :active="request()->routeIs('panol.equipos')" wire:navigate>
+                            Equipos
+                        </x-nav-link>
+                        <x-nav-link :href="route('panol.inventario')" :active="request()->routeIs('panol.inventario')" wire:navigate>
+                            Inventario
+                        </x-nav-link>
+                        <x-nav-link :href="route('panol.mantenimientos')" :active="request()->routeIs('panol.mantenimientos')" wire:navigate>
+                            Mantenimientos
+                        </x-nav-link>
+                        <x-nav-link :href="route('panol.bajas')" :active="request()->routeIs('panol.bajas')" wire:navigate>
+                            Bajas / Reemplazos
+                        </x-nav-link>
+                        <x-nav-link :href="route('panol.etiquetas')" :active="request()->routeIs('panol.etiquetas')" wire:navigate>
+                            Etiquetas
+                        </x-nav-link>
+                    @else
+                        <x-nav-link :href="route('docente.equipos')" :active="request()->routeIs('docente.equipos')" wire:navigate>
+                            Catálogo de Equipos
+                        </x-nav-link>
+                    @endif
                 </div>
             </div>
 

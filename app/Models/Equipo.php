@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class Equipo extends Model
 {
@@ -62,5 +63,10 @@ class Equipo extends Model
     public function detallesSolicitud(): HasMany
     {
         return $this->hasMany(DetalleSolicitud::class, 'equipo_id');
+    }
+
+    public function documentos(): MorphMany
+    {
+        return $this->morphMany(Documento::class, 'documentable');
     }
 }
