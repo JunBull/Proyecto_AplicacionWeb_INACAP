@@ -172,7 +172,7 @@ new #[Layout('layouts.app')] class extends Component
         </div>
         <button
             wire:click="abrirModalCrear"
-            class="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white font-medium text-sm rounded-lg shadow-sm transition active:scale-95"
+            class="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2.5 min-h-[44px] bg-red-700 hover:bg-red-800 text-white font-semibold text-sm rounded-lg shadow-sm hover:shadow transition active:scale-95"
         >
             <svg class="w-5 h-5 me-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
@@ -347,20 +347,11 @@ new #[Layout('layouts.app')] class extends Component
                         <div class="p-4 rounded-xl border border-gray-200 hover:border-gray-300 transition bg-white shadow-xs">
                             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-2.5">
                                 <div class="flex items-center gap-2">
-                                    <span class="font-bold text-gray-900 text-sm">#SOL-{{ str_pad($sol->id, 5, '0', STR_PAD_LEFT) }}</span>
-                                    <span class="text-xs text-gray-400">&bull; Requerida: <strong class="text-gray-700">{{ $sol->fecha_requerida->format('d/m/Y') }}</strong></span>
+                                    <span class="font-bold text-slate-900 text-sm">#SOL-{{ str_pad($sol->id, 5, '0', STR_PAD_LEFT) }}</span>
+                                    <span class="text-xs text-slate-500">&bull; Requerida: <strong class="text-slate-700">{{ $sol->fecha_requerida->format('d/m/Y') }}</strong></span>
                                 </div>
                                 <div>
                                     @php
-                                        $badgeClass = match($sol->estado) {
-                                            'pendiente' => 'bg-amber-100 text-amber-800 border-amber-200',
-                                            'aprobada' => 'bg-blue-100 text-blue-800 border-blue-200',
-                                            'entregada_abierta' => 'bg-purple-100 text-purple-800 border-purple-200',
-                                            'cerrada' => 'bg-emerald-100 text-emerald-800 border-emerald-200',
-                                            'rechazada' => 'bg-red-100 text-red-800 border-red-200',
-                                            'sin_disponibilidad' => 'bg-gray-100 text-gray-700 border-gray-300',
-                                            default => 'bg-gray-100 text-gray-800',
-                                        };
                                         $labelEstado = match($sol->estado) {
                                             'pendiente' => 'Pendiente de Revisión',
                                             'aprobada' => 'Aprobada (Lista para Retiro)',
@@ -368,12 +359,10 @@ new #[Layout('layouts.app')] class extends Component
                                             'cerrada' => 'Cerrada / Finalizada',
                                             'rechazada' => 'Rechazada',
                                             'sin_disponibilidad' => 'Sin Disponibilidad',
-                                            default => $sol->estado,
+                                            default => ucfirst(str_replace('_', ' ', $sol->estado)),
                                         };
                                     @endphp
-                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border {{ $badgeClass }}">
-                                        {{ $labelEstado }}
-                                    </span>
+                                    <x-status-badge :estado="$sol->estado" :label="$labelEstado" />
                                 </div>
                             </div>
 

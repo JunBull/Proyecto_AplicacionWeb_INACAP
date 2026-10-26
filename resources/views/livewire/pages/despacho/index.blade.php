@@ -298,20 +298,21 @@ new #[Layout('layouts.app')] class extends Component
         </div>
 
         <!-- Escáner Rápido de Código de Barras (Hardware 1D / Teclado) -->
-        <div class="w-full md:w-80 bg-white p-2.5 rounded-xl border border-gray-200 shadow-xs">
+        <div class="w-full md:w-80 bg-white p-2.5 rounded-xl border border-slate-200 shadow-xs">
             <form wire:submit.prevent="escanearCodigo" class="flex gap-1.5">
                 <div class="relative flex-1">
                     <input
                         type="text"
                         wire:model="escaneoCodigoBarras"
+                        autofocus
                         placeholder="Escanear código de barras..."
-                        class="w-full text-xs font-mono py-1.5 pl-8 pr-2 border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500"
+                        class="w-full text-xs font-mono py-1.5 pl-8 pr-2 border-slate-300 rounded-lg focus:ring-red-600 focus:border-red-600"
                     />
-                    <svg class="w-4 h-4 text-gray-400 absolute left-2.5 top-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="w-4 h-4 text-slate-400 absolute left-2.5 top-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"></path>
                     </svg>
                 </div>
-                <button type="submit" class="px-3 py-1.5 bg-gray-900 text-white text-xs font-semibold rounded-lg hover:bg-black transition">
+                <button type="submit" wire:loading.attr="disabled" class="px-3 py-1.5 bg-red-700 text-white text-xs font-semibold rounded-lg hover:bg-red-800 disabled:opacity-50 transition">
                     Verificar
                 </button>
             </form>

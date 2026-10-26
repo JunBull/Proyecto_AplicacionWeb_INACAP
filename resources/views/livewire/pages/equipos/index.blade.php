@@ -252,15 +252,7 @@ new #[Layout('layouts.app')] class extends Component
                                     @endif
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap">
-                                    @if($eq->estado === 'disponible')
-                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">Disponible</span>
-                                    @elseif($eq->estado === 'en_mantenimiento')
-                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-orange-100 text-orange-800">En Mantenimiento</span>
-                                    @elseif($eq->estado === 'dado_de_baja')
-                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-200 text-gray-700">Dado de Baja</span>
-                                    @else
-                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-800">{{ ucfirst($eq->estado) }}</span>
-                                    @endif
+                                    <x-status-badge :estado="$eq->estado" />
                                 </td>
                                 <td class="px-6 py-4 text-gray-600">
                                     {{ $eq->ubicacion?->nombre }}
