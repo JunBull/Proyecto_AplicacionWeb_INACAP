@@ -10,6 +10,7 @@ use App\Services\CompraService;
 use App\Services\OcrService;
 use App\Services\PresupuestoService;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
@@ -44,6 +45,7 @@ new #[Layout('layouts.app')] class extends Component
 
     public function mount(): void
     {
+        Gate::authorize('viewAny', Compra::class);
         $this->fecha = date('Y-m-d');
         $primeraCarrera = Carrera::where('activa', true)->first();
         if ($primeraCarrera) {
@@ -58,6 +60,7 @@ new #[Layout('layouts.app')] class extends Component
 
     public function abrirModalIngreso(): void
     {
+        Gate::authorize('create', Compra::class);
         $this->reset(['archivoDocumento', 'ocrMensaje', 'ocrConfianza', 'numero_documento', 'items']);
         $this->pasoActual = 1;
         $this->fecha = date('Y-m-d');
@@ -72,10 +75,16 @@ new #[Layout('layouts.app')] class extends Component
      */
     public function procesarOcr(OcrService $ocrService): void
     {
-        if (! $this->archivoDocumento) {
-            $this->addError('archivoDocumento', 'Seleccione un archivo de factura u orden de compra.');
-            return;
-        }
+        Gate::authorize('create', Compra::class);
+
+        $this->validate([
+            'archivoDocumento' => 'required|file|mimes:pdf,jpg,jpeg,png|max:10240',
+        ], [
+            'archivoDocumento.required' => 'Seleccione un archivo de factura u orden de compra.',
+            'archivoDocumento.file' => 'El elemento cargado debe ser un archivo válido.',
+            'archivoDocumento.mimes' => 'El archivo debe tener formato PDF, JPG o PNG.',
+            'archivoDocumento.max' => 'El archivo no debe exceder 10 MB de tamaño.',
+        ]);
 
         $this->procesandoOcr = true;
 
@@ -164,6 +173,8 @@ new #[Layout('layouts.app')] class extends Component
      */
     public function confirmarIngresoInventario(CompraService $compraService): void
     {
+        Gate::authorize('create', Compra::class);
+
         try {
             $compraService->registrarCompraEIngreso(
                 [

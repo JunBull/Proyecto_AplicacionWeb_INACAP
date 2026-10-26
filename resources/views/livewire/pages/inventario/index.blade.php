@@ -6,6 +6,7 @@ use App\Models\Ubicacion;
 use App\Services\InventarioService;
 use App\Services\UbicacionService;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
@@ -35,6 +36,7 @@ new #[Layout('layouts.app')] class extends Component
 
     public function mount(): void
     {
+        Gate::authorize('viewAny', Insumo::class);
         $primera = Ubicacion::first();
         if ($primera) {
             $this->ubicacion_id = $primera->id;
@@ -76,6 +78,7 @@ new #[Layout('layouts.app')] class extends Component
 
     public function abrirModalCrear(): void
     {
+        Gate::authorize('create', Insumo::class);
         $this->resetErrorBag();
         $this->codigo_barras = 'INS-' . strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
         $this->nombre = '';
@@ -88,6 +91,8 @@ new #[Layout('layouts.app')] class extends Component
 
     public function guardarInsumo(InventarioService $inventarioService): void
     {
+        Gate::authorize('create', Insumo::class);
+
         try {
             $inventarioService->registrarInsumo([
                 'codigo_barras' => $this->codigo_barras,
@@ -121,6 +126,7 @@ new #[Layout('layouts.app')] class extends Component
     public function procesarMovimiento(InventarioService $inventarioService): void
     {
         $insumo = Insumo::findOrFail($this->insumoSeleccionadoId);
+        Gate::authorize('ajustarStock', $insumo);
 
         try {
             if ($this->tipoOperacion === 'ingreso') {

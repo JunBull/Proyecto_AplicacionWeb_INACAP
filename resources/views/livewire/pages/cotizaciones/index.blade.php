@@ -9,6 +9,7 @@ use App\Services\CotizacionService;
 use App\Services\PresupuestoService;
 use App\Services\ProveedorService;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
@@ -43,6 +44,7 @@ new #[Layout('layouts.app')] class extends Component
 
     public function mount(): void
     {
+        Gate::authorize('viewAny', Cotizacion::class);
         $this->fechaRecepcion = date('Y-m-d');
         $carrera = Carrera::first();
         if ($carrera) {
@@ -57,6 +59,8 @@ new #[Layout('layouts.app')] class extends Component
 
     public function guardarSolicitud(CotizacionService $service): void
     {
+        Gate::authorize('create', Cotizacion::class);
+
         try {
             $solicitud = $service->crearSolicitudCotizacion([
                 'carrera_id' => (int) $this->carrera_id,
@@ -76,12 +80,26 @@ new #[Layout('layouts.app')] class extends Component
 
     public function abrirCargaCotizacion(int $solicitudId): void
     {
+        Gate::authorize('create', Cotizacion::class);
         $this->solicitudIdParaCotizacion = $solicitudId;
         $this->mostrarModalCargarCotizacion = true;
     }
 
     public function guardarCotizacion(CotizacionService $service): void
     {
+        Gate::authorize('create', Cotizacion::class);
+
+        $this->validate([
+            'solicitudIdParaCotizacion' => 'required|exists:solicitudes_cotizacion,id',
+            'proveedorCotizacionId' => 'required|exists:proveedores,id',
+            'montoCotizacion' => 'required|numeric|min:0.01',
+            'archivoCotizacion' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
+        ], [
+            'montoCotizacion.min' => 'El monto cotizado debe ser superior a cero.',
+            'archivoCotizacion.mimes' => 'El documento de respaldo debe ser PDF, JPG o PNG.',
+            'archivoCotizacion.max' => 'El archivo no debe exceder 10 MB.',
+        ]);
+
         try {
             $solicitud = SolicitudCotizacion::findOrFail($this->solicitudIdParaCotizacion);
             $proveedor = Proveedor::findOrFail($this->proveedorCotizacionId);
@@ -121,6 +139,11 @@ new #[Layout('layouts.app')] class extends Component
     {
         try {
             $cotizacion = Cotizacion::with(['solicitudCotizacion.carrera', 'proveedor'])->findOrFail($this->cotizacionIdParaAdjudicar);
+
+            Gate::authorize('adjudicar', $cotizacion);
+            if ($this->excepcionAutorizada) {
+                Gate::authorize('autorizarExcepcion', Cotizacion::class);
+            }
 
             $service->adjudicarCotizacion(
                 $cotizacion,

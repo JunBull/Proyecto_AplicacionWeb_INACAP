@@ -2,6 +2,7 @@
 
 use App\Models\Proveedor;
 use App\Services\ProveedorService;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
@@ -20,6 +21,11 @@ new #[Layout('layouts.app')] class extends Component
     public string $telefono = '';
     public string $tipo = 'insumos';
     public bool $activo = true;
+
+    public function mount(): void
+    {
+        Gate::authorize('viewAny', Proveedor::class);
+    }
 
     public function proveedores(ProveedorService $service)
     {
@@ -53,6 +59,8 @@ new #[Layout('layouts.app')] class extends Component
 
     public function guardarProveedor(ProveedorService $service): void
     {
+        Gate::authorize('create', Proveedor::class);
+
         try {
             $service->registrarProveedor([
                 'razon_social' => $this->razon_social,
@@ -75,6 +83,7 @@ new #[Layout('layouts.app')] class extends Component
     public function alternarEstado(int $id, ProveedorService $service): void
     {
         $proveedor = Proveedor::findOrFail($id);
+        Gate::authorize('update', $proveedor);
         $service->toggleActivo($proveedor);
         session()->flash('mensaje', "Estado del proveedor {$proveedor->razon_social} actualizado.");
     }

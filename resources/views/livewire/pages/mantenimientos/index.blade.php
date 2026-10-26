@@ -6,6 +6,7 @@ use App\Models\Proveedor;
 use App\Services\MantenimientoService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
@@ -33,6 +34,7 @@ new #[Layout('layouts.app')] class extends Component
 
     public function mount(): void
     {
+        Gate::authorize('viewAny', Mantenimiento::class);
         $primerEquipo = Equipo::where('estado', '!=', 'dado_de_baja')->first();
         if ($primerEquipo) {
             $this->equipo_id = $primerEquipo->id;
@@ -75,6 +77,8 @@ new #[Layout('layouts.app')] class extends Component
 
     public function guardarMantenimiento(MantenimientoService $servicio): void
     {
+        Gate::authorize('create', Mantenimiento::class);
+
         $this->validate([
             'equipo_id' => 'required|exists:equipos,id',
             'tipo' => 'required|in:preventivo,correctivo',
@@ -116,10 +120,14 @@ new #[Layout('layouts.app')] class extends Component
     {
         $this->validate([
             'fecha_realizada' => 'required|date',
-            'informe_tecnico' => 'nullable|file|max:10240',
+            'informe_tecnico' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
+        ], [
+            'informe_tecnico.mimes' => 'El informe técnico debe estar en formato PDF, JPG o PNG.',
+            'informe_tecnico.max' => 'El archivo no debe exceder los 10 MB.',
         ]);
 
         $mant = Mantenimiento::findOrFail($this->mantenimientoId);
+        Gate::authorize('update', $mant);
         $servicio->registrarEjecucion(
             $mant,
             $this->fecha_realizada,

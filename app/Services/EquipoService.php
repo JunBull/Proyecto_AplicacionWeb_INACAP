@@ -9,9 +9,7 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
-use InvalidArgumentException;
 
 class EquipoService
 {
@@ -69,7 +67,7 @@ class EquipoService
      *     fecha_adquisicion?: string|null,
      *     estado?: string
      * } $datos
-     * @param User|null $usuarioResponsable
+     *
      * @throws ValidationException
      */
     public function registrarEquipo(array $datos, ?User $usuarioResponsable = null): Equipo
@@ -107,7 +105,7 @@ class EquipoService
                 'tipo' => 'otro',
                 'ruta' => $rutaFoto,
                 'nombre_original' => $archivoFoto instanceof UploadedFile ? $archivoFoto->getClientOriginalName() : basename($rutaFoto),
-                'hash_sha256' => hash('sha256', $rutaFoto . '|' . $equipo->id . '|' . microtime(true)),
+                'hash_sha256' => hash('sha256', $rutaFoto.'|'.$equipo->id.'|'.microtime(true)),
                 'documentable_type' => Equipo::class,
                 'documentable_id' => $equipo->id,
                 'subido_por' => $subidoPorId,
@@ -121,7 +119,7 @@ class EquipoService
     /**
      * Actualiza la ficha técnica de un equipo.
      *
-     * @param array<string, mixed> $datos
+     * @param  array<string, mixed>  $datos
      */
     public function actualizarEquipo(Equipo $equipo, array $datos, ?User $usuarioResponsable = null): Equipo
     {
@@ -148,7 +146,7 @@ class EquipoService
                     'tipo' => 'otro',
                     'ruta' => $rutaFoto,
                     'nombre_original' => $archivoFoto->getClientOriginalName(),
-                    'hash_sha256' => hash('sha256', $rutaFoto . '|' . $equipo->id . '|' . microtime(true)),
+                    'hash_sha256' => hash('sha256', $rutaFoto.'|'.$equipo->id.'|'.microtime(true)),
                     'documentable_type' => Equipo::class,
                     'documentable_id' => $equipo->id,
                     'subido_por' => $subidoPorId,
@@ -170,13 +168,13 @@ class EquipoService
         $query = Equipo::with(['ubicacion.carrera', 'documentos']);
 
         if (trim($termino) !== '') {
-            $t = '%' . trim($termino) . '%';
+            $t = '%'.trim($termino).'%';
             $query->where(function ($q) use ($t) {
                 $q->where('nombre', 'LIKE', $t)
-                  ->orWhere('codigo_barras', 'LIKE', $t)
-                  ->orWhere('marca', 'LIKE', $t)
-                  ->orWhere('modelo', 'LIKE', $t)
-                  ->orWhere('numero_serie', 'LIKE', $t);
+                    ->orWhere('codigo_barras', 'LIKE', $t)
+                    ->orWhere('marca', 'LIKE', $t)
+                    ->orWhere('modelo', 'LIKE', $t)
+                    ->orWhere('numero_serie', 'LIKE', $t);
             });
         }
 
@@ -192,7 +190,8 @@ class EquipoService
     /**
      * Valida rigurosamente la presencia de campos obligatorios y formato estandarizado (CP-03, CP-04).
      *
-     * @param array<string, mixed> $datos
+     * @param  array<string, mixed>  $datos
+     *
      * @throws ValidationException
      */
     protected function validarFichaTecnica(array $datos): void
@@ -225,6 +224,15 @@ class EquipoService
 
         if (empty($datos['ubicacion_id']) || ! Ubicacion::where('id', $datos['ubicacion_id'])->exists()) {
             $errores['ubicacion_id'] = 'La ubicación o laboratorio asignado es obligatorio y debe existir.';
+        }
+
+        if (isset($datos['fotografia']) && $datos['fotografia'] instanceof UploadedFile) {
+            $ext = strtolower($datos['fotografia']->getClientOriginalExtension() ?: $datos['fotografia']->extension() ?: '');
+            if (! in_array($ext, ['jpg', 'jpeg', 'png', 'webp'], true)) {
+                $errores['fotografia'] = 'La fotografía del equipo debe ser un archivo de imagen válido (jpg, jpeg, png, webp).';
+            } elseif ($datos['fotografia']->getSize() > 5 * 1024 * 1024) {
+                $errores['fotografia'] = 'La fotografía del equipo no debe superar los 5 MB.';
+            }
         }
 
         if (! empty($errores)) {

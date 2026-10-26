@@ -6,6 +6,7 @@ use App\Models\SolicitudMaterial;
 use App\Services\PrestamoService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
 
@@ -27,6 +28,7 @@ new #[Layout('layouts.app')] class extends Component
 
     public function mount(): void
     {
+        Gate::authorize('viewAny', SolicitudMaterial::class);
         $this->fecha_requerida = Carbon::tomorrow()->toDateString();
     }
 
@@ -87,6 +89,8 @@ new #[Layout('layouts.app')] class extends Component
 
     public function registrarSolicitud(PrestamoService $prestamoService): void
     {
+        Gate::authorize('create', SolicitudMaterial::class);
+
         $this->validate([
             'fecha_requerida' => 'required|date|after_or_equal:today',
             'itemsSeleccionados' => 'required|array|min:1',
@@ -128,6 +132,9 @@ new #[Layout('layouts.app')] class extends Component
 
     public function verDetalle(int $solicitudId): void
     {
+        $solicitud = SolicitudMaterial::findOrFail($solicitudId);
+        Gate::authorize('view', $solicitud);
+
         $this->solicitudDetalleId = $solicitudId;
         $this->mostrarModalDetalle = true;
     }

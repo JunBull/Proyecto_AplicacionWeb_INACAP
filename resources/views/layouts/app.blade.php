@@ -14,7 +14,12 @@
         <!-- Scripts -->
         @vite(['resources/css/app.css', 'resources/js/app.js'])
     </head>
-    <body class="font-sans antialiased">
+    <body class="font-sans antialiased text-gray-900 bg-gray-100">
+        <!-- Enlace accesible para saltar al contenido principal (WCAG 2.2 - Criterio 2.4.1) -->
+        <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:px-4 focus:py-2 focus:bg-red-700 focus:text-white focus:rounded-md focus:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-white text-sm font-medium">
+            Saltar al contenido principal (Accesibilidad)
+        </a>
+
         <div class="min-h-screen bg-gray-100">
             <livewire:layout.navigation />
 
@@ -28,7 +33,7 @@
             @endif
 
             <!-- Page Content -->
-            <main>
+            <main id="main-content" tabindex="-1">
                 {{ $slot }}
             </main>
         </div>

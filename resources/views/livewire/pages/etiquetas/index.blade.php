@@ -3,6 +3,7 @@
 use App\Models\Equipo;
 use App\Models\Insumo;
 use App\Services\BarcodeService;
+use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
 
@@ -17,6 +18,11 @@ new #[Layout('layouts.app')] class extends Component
     public ?string $htmlLote = null;
     public ?float $tiempoGeneracionMs = null;
     public int $totalGeneradas = 0;
+
+    public function mount(): void
+    {
+        Gate::authorize('create', Equipo::class);
+    }
 
     public function leerCodigoBarras(BarcodeService $service): void
     {

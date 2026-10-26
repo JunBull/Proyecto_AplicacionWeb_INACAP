@@ -7,6 +7,7 @@ use App\Services\BarcodeService;
 use App\Services\EquipoService;
 use App\Services\FallaService;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
@@ -39,6 +40,7 @@ new #[Layout('layouts.app')] class extends Component
 
     public function mount(): void
     {
+        Gate::authorize('viewAny', Equipo::class);
         $primeraUbicacion = Ubicacion::first();
         if ($primeraUbicacion) {
             $this->ubicacion_id = $primeraUbicacion->id;
@@ -82,6 +84,7 @@ new #[Layout('layouts.app')] class extends Component
 
     public function abrirModalCrear(): void
     {
+        Gate::authorize('create', Equipo::class);
         $this->resetErrorBag();
         $this->codigo_barras = 'EQ-' . strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
         $this->nombre = '';
@@ -95,6 +98,15 @@ new #[Layout('layouts.app')] class extends Component
 
     public function guardarEquipo(EquipoService $equipoService): void
     {
+        Gate::authorize('create', Equipo::class);
+
+        $this->validate([
+            'fotografia' => 'nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
+        ], [
+            'fotografia.mimes' => 'La fotografía debe tener formato JPG, PNG o WEBP.',
+            'fotografia.max' => 'La fotografía no debe superar los 5 MB.',
+        ]);
+
         try {
             $equipoService->registrarEquipo([
                 'codigo_barras' => $this->codigo_barras,
@@ -134,6 +146,7 @@ new #[Layout('layouts.app')] class extends Component
         ]);
 
         $equipo = Equipo::findOrFail($this->equipoFallaId);
+        Gate::authorize('reportarFalla', $equipo);
         $fallaService->reportarFalla($equipo, Auth::user(), $this->descripcionFalla);
 
         $this->mostrarModalFalla = false;

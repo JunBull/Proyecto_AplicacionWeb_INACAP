@@ -16,6 +16,7 @@ class DatabaseSeeder extends Seeder
     {
         $this->call([
             HitoUnoBaseSeeder::class,
+            DatosOperativosDemoSeeder::class,
         ]);
     }
 }

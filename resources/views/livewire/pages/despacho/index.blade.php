@@ -11,6 +11,7 @@ use App\Models\SolicitudMaterial;
 use App\Services\BarcodeService;
 use App\Services\PrestamoService;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Gate;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
 
@@ -39,6 +40,11 @@ new #[Layout('layouts.app')] class extends Component
     public bool $mostrarModalRechazo = false;
     public ?int $solicitudRechazoId = null;
     public string $motivoRechazo = '';
+
+    public function mount(): void
+    {
+        Gate::authorize('viewAny', Entrega::class);
+    }
 
     public function escanearCodigo(): void
     {
@@ -133,6 +139,8 @@ new #[Layout('layouts.app')] class extends Component
 
     public function confirmarEntrega(PrestamoService $prestamoService): void
     {
+        Gate::authorize('create', Entrega::class);
+
         $this->validate([
             'receptorNombre' => 'required|string|min:3',
             'receptorTipo' => 'required|in:docente,estudiante',
@@ -195,6 +203,7 @@ new #[Layout('layouts.app')] class extends Component
         }
 
         $entrega = Entrega::findOrFail($this->entregaDevolucionId);
+        Gate::authorize('procesarDevolucion', $entrega);
 
         $itemsAProcesar = [];
         foreach ($this->itemsDevolucionForm as $detalleId => $datos) {

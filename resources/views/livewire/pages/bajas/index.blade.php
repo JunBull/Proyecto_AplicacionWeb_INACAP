@@ -4,6 +4,7 @@ use App\Models\BajaReemplazo;
 use App\Models\Equipo;
 use App\Services\BajaReemplazoService;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
@@ -28,6 +29,7 @@ new #[Layout('layouts.app')] class extends Component
 
     public function mount(): void
     {
+        Gate::authorize('viewAny', BajaReemplazo::class);
         $primerEquipo = Equipo::whereNotIn('estado', ['dado_de_baja'])->first();
         if ($primerEquipo) {
             $this->equipo_id = $primerEquipo->id;
@@ -57,14 +59,18 @@ new #[Layout('layouts.app')] class extends Component
 
     public function guardarPropuesta(BajaReemplazoService $servicio): void
     {
+        Gate::authorize('create', BajaReemplazo::class);
+
         $this->validate([
             'equipo_id' => 'required|exists:equipos,id',
             'tipo' => 'required|in:baja,reemplazo',
             'motivo' => 'required|string|min:15',
-            'adjuntos.*' => 'nullable|file|max:10240',
+            'adjuntos.*' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
         ], [
             'motivo.required' => 'Debe ingresar el sustento técnico y económico que justifique reparación vs reposición.',
             'motivo.min' => 'El sustento debe tener al menos 15 caracteres explicativos.',
+            'adjuntos.*.mimes' => 'Los documentos de respaldo deben estar en formato PDF, JPG o PNG.',
+            'adjuntos.*.max' => 'Los archivos no deben superar 10 MB.',
         ]);
 
         $equipo = Equipo::findOrFail($this->equipo_id);
@@ -100,6 +106,7 @@ new #[Layout('layouts.app')] class extends Component
     public function resolverPropuesta(BajaReemplazoService $servicio): void
     {
         $propuesta = BajaReemplazo::findOrFail($this->propuestaId);
+        Gate::authorize('aprobar', $propuesta);
 
         try {
             $servicio->resolverPropuesta(

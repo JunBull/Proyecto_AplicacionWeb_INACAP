@@ -21,4 +21,19 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*') || $request->expectsJson(),
         );
+
+        $exceptions->render(function (Throwable $e, Request $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                if (! config('app.debug')) {
+                    $status = method_exists($e, 'getStatusCode') ? $e->getStatusCode() : 500;
+
+                    return response()->json([
+                        'error' => true,
+                        'message' => $status === 500 ? 'Incidencia técnica interna controlada en servidor.' : $e->getMessage(),
+                    ], $status);
+                }
+            }
+
+            return null;
+        });
     })->create();
