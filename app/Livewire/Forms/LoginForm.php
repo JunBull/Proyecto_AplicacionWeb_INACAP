@@ -30,7 +30,8 @@ class LoginForm extends Form
     {
         $this->ensureIsNotRateLimited();
 
-        if (! Auth::attempt($this->only(['email', 'password']), $this->remember)) {
+        // CP-01: Solo se permite acceso con credenciales válidas y usuario activo (vigente)
+        if (! Auth::attempt(['email' => $this->email, 'password' => $this->password, 'activo' => true], $this->remember)) {
             RateLimiter::hit($this->throttleKey());
 
             throw ValidationException::withMessages([
