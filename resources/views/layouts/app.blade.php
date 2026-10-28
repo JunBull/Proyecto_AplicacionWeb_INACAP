@@ -7,6 +7,8 @@
 
         <title>{{ config('app.name', 'INACAP Pañol') }} - Sede Temuco</title>
 
+        <link rel="icon" type="image/svg+xml" href="{{ asset('images/logo-inacap.svg') }}">
+
         <!-- Fonts -->
         <link rel="preconnect" href="https://fonts.bunny.net">
         <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700,800&display=swap" rel="stylesheet" />

@@ -1,16 +1,21 @@
-<svg viewBox="0 0 260 64" fill="none" xmlns="http://www.w3.org/2000/svg" {{ $attributes }}>
-    <!-- Símbolo geométrico INACAP (Chevrons / Bloques angulares rojos) -->
-    <g>
-        <path d="M12 48L32 16H48L28 48H12Z" fill="#CC0000" />
-        <path d="M36 48L56 16H72L52 48H36Z" fill="#990000" />
-        <path d="M22 16L30 28H14L6 16H22Z" fill="#E52323" />
+@props([
+    'monochrome' => false,
+])
+
+<svg viewBox="0 0 318.89 82.84" fill="none" xmlns="http://www.w3.org/2000/svg" {{ $attributes->except('monochrome') }}>
+    <!-- Símbolo Institucional INACAP -->
+    <polygon points="0 0 0 64.91 45 64.91 45 23.06 55.91 23.06 55.91 64.91 66.81 64.91 66.81 0 0 0" fill="{{ $monochrome ? 'currentColor' : '#e20a17' }}" />
+    <!-- Tipografía Oficial INACAP ("nacap") -->
+    <g fill="currentColor">
+        <!-- n -->
+        <path d="M105.48,23.17h-27.05v41.74h11.06v-32h12.63c2.46,0,4.46,2,4.46,4.46v27.54h11.06v-29.59c0-6.72-5.44-12.16-12.16-12.16Z"/>
+        <!-- a -->
+        <path d="M156.97,23.17h-28.75v8.89h23.47c3.53,0,6.38,2.86,6.38,6.38v1.55h-20.14c-6.88,0-12.46,5.58-12.46,12.46s5.58,12.46,12.46,12.46h31.2v-29.59c0-6.72-5.44-12.16-12.16-12.16ZM142.19,56.96c-2.49,0-4.5-2.01-4.5-4.5s2.01-4.5,4.5-4.5h15.87v9h-15.87Z"/>
+        <!-- c -->
+        <path d="M177.01,42.6v2.88c0,10.73,8.7,19.43,19.43,19.43h18.91v-8.98h-14.52c-6.57,0-11.89-5.32-11.89-11.89s5.32-11.89,11.89-11.89h14.52v-8.98h-18.91c-10.73,0-19.43,8.7-19.43,19.43Z"/>
+        <!-- a -->
+        <path d="M252.46,23.17h-28.75v8.89h23.47c3.53,0,6.38,2.86,6.38,6.38v1.55h-20.14c-6.88,0-12.46,5.58-12.46,12.46s5.58,12.46,12.46,12.46h31.2v-29.59c0-6.72-5.44-12.16-12.16-12.16ZM237.68,56.96c-2.49,0-4.5-2.01-4.5-4.5s2.01-4.5,4.5-4.5h15.87v9h-15.87Z"/>
+        <!-- p -->
+        <path d="M299.46,23.17h-24.44v59.66h11.06v-17.92h13.38c10.73,0,19.43-8.7,19.43-19.43v-2.88c0-10.73-8.7-19.43-19.43-19.43ZM295.07,55.93h-8.98v-23.78h8.98c6.57,0,11.89,5.32,11.89,11.89s-5.32,11.89-11.89,11.89Z"/>
     </g>
-    <!-- Logotipo tipográfico INACAP -->
-    <text x="82" y="44" font-family="'Figtree', 'Montserrat', 'Segoe UI', Arial, sans-serif" font-size="34" font-weight="900" letter-spacing="1.5" fill="currentColor">
-        INACAP
-    </text>
-    <!-- Subtítulo institucional Sede Temuco / Pañol -->
-    <text x="84" y="58" font-family="'Figtree', 'Montserrat', 'Segoe UI', Arial, sans-serif" font-size="9" font-weight="700" letter-spacing="2.8" fill="#CC0000">
-        SEDE TEMUCO &bull; PAÑOL
-    </text>
 </svg>

@@ -24,10 +24,10 @@ new class extends Component
             <!-- Bloque Izquierdo: Logo y Navegación Principal -->
             <div class="flex items-center gap-3 lg:gap-6 min-w-0">
                 
-                <!-- Logo Institucional INACAP (Contenedor dimensionado listo para SVG oficial) -->
+                <!-- Logo Institucional INACAP Oficial -->
                 <div class="shrink-0 flex items-center">
                     <a href="{{ route('dashboard') }}" class="flex items-center focus:outline-none focus:ring-2 focus:ring-red-600 focus:ring-offset-2 rounded-lg transition py-1" wire:navigate aria-label="Ir al Panel Principal de INACAP">
-                        <x-application-logo class="block h-9 sm:h-10 lg:h-11 w-auto fill-current text-slate-800 transition" />
+                        <x-application-logo class="block h-8 sm:h-9 lg:h-10 w-auto fill-current text-slate-800 transition" />
                     </a>
                 </div>
 

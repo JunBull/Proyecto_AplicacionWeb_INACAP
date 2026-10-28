@@ -7,6 +7,8 @@
 
         <title>{{ config('app.name', 'INACAP Pañol') }} - Acceso Institucional</title>
 
+        <link rel="icon" type="image/svg+xml" href="{{ asset('images/logo-inacap.svg') }}">
+
         <!-- Fonts -->
         <link rel="preconnect" href="https://fonts.bunny.net">
         <link href="https://fonts.bunny.net/css?family=figtree:400,500,600,700,800,900&display=swap" rel="stylesheet" />
@@ -42,7 +44,7 @@
                 <!-- Contenido central hero -->
                 <div class="relative z-10 max-w-xl my-auto py-8">
                     <div class="mb-6">
-                        <x-application-logo class="h-16 w-auto text-white fill-current drop-shadow-md" />
+                        <x-application-logo class="h-14 w-auto text-white fill-current drop-shadow-md" monochrome />
                     </div>
 
                     <h1 class="text-3xl xl:text-4xl font-extrabold tracking-tight text-white leading-tight">
