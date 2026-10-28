@@ -3,7 +3,6 @@
 namespace Tests\Feature\HitoCuatro;
 
 use App\Models\Carrera;
-use App\Models\DetalleSolicitud;
 use App\Models\Equipo;
 use App\Models\Insumo;
 use App\Models\SolicitudMaterial;
@@ -21,12 +20,19 @@ class CasoPruebaCP19Test extends TestCase
     use RefreshDatabase;
 
     protected Carrera $carrera;
+
     protected Ubicacion $ubicacion;
+
     protected User $docente;
+
     protected User $panolero;
+
     protected Equipo $equipo;
+
     protected Insumo $insumoConsumible;
+
     protected Insumo $insumoRetornable;
+
     protected PrestamoService $prestamoService;
 
     protected function setUp(): void
@@ -210,5 +216,63 @@ class CasoPruebaCP19Test extends TestCase
             'solicitante_id' => $this->docente->id,
             'estado' => 'pendiente',
         ]);
+    }
+
+    /**
+     * CP-19: Docente agrega ítems con +Pedir (toggle) y los preserva al abrir el modal de solicitud.
+     */
+    public function test_docente_preserva_items_al_abrir_modal_crear(): void
+    {
+        $this->actingAs($this->docente);
+
+        Volt::test('pages.solicitudes.index')
+            ->call('toggleItem', 'equipo', $this->equipo->id)
+            ->assertSet('itemsSeleccionados', function ($items) {
+                return count($items) === 1 && $items[0]['id'] === $this->equipo->id;
+            })
+            ->assertSee('✓ En Solicitud')
+            ->assertSee('1 material en canasta')
+            ->call('abrirModalCrear')
+            ->assertSet('mostrarModalCrear', true)
+            ->assertSet('itemsSeleccionados', function ($items) {
+                return count($items) === 1 && $items[0]['id'] === $this->equipo->id;
+            })
+            ->assertSee('Total ítems: 1')
+            ->set('fecha_requerida', Carbon::tomorrow()->toDateString())
+            ->call('registrarSolicitud')
+            ->assertHasNoErrors()
+            ->assertSee('¡Solicitud registrada exitosamente!');
+
+        $this->assertDatabaseHas('solicitudes_material', [
+            'solicitante_id' => $this->docente->id,
+            'estado' => 'pendiente',
+        ]);
+    }
+
+    /**
+     * CP-19: Docente puede alternar (toggle) ítems o vaciar la canasta.
+     */
+    public function test_docente_puede_alternar_o_vaciar_seleccion_de_materiales(): void
+    {
+        $this->actingAs($this->docente);
+
+        $test = Volt::test('pages.solicitudes.index')
+            ->call('toggleItem', 'equipo', $this->equipo->id)
+            ->assertSet('itemsSeleccionados', function ($items) {
+                return count($items) === 1;
+            })
+            // Segundo toggle lo remueve
+            ->call('toggleItem', 'equipo', $this->equipo->id)
+            ->assertSet('itemsSeleccionados', [])
+            ->assertSee('+ Pedir');
+
+        // Agregar de nuevo y probar vaciar canasta
+        $test->call('toggleItem', 'insumo', $this->insumoConsumible->id)
+            ->assertSet('itemsSeleccionados', function ($items) {
+                return count($items) === 1;
+            })
+            ->call('vaciarItems')
+            ->assertSet('itemsSeleccionados', [])
+            ->assertSee('Se han vaciado todos los ítems de la solicitud.');
     }
 }

@@ -35,10 +35,40 @@ new #[Layout('layouts.app')] class extends Component
     public function abrirModalCrear(): void
     {
         $this->resetValidation();
-        $this->fecha_requerida = Carbon::tomorrow()->toDateString();
-        $this->observaciones = '';
-        $this->itemsSeleccionados = [];
+        if (empty($this->fecha_requerida)) {
+            $this->fecha_requerida = Carbon::tomorrow()->toDateString();
+        }
         $this->mostrarModalCrear = true;
+    }
+
+    public function vaciarItems(): void
+    {
+        $this->itemsSeleccionados = [];
+        session()->flash('info_item', 'Se han vaciado todos los ítems de la solicitud.');
+    }
+
+    public function estaSeleccionado(string $tipo, int $id): bool
+    {
+        foreach ($this->itemsSeleccionados as $item) {
+            if ($item['tipo'] === $tipo && $item['id'] === $id) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public function toggleItem(string $tipo, int $id): void
+    {
+        foreach ($this->itemsSeleccionados as $index => $item) {
+            if ($item['tipo'] === $tipo && $item['id'] === $id) {
+                $this->removerItem($index);
+                session()->flash('info_item', 'Ítem removido de la solicitud.');
+                return;
+            }
+        }
+
+        $this->agregarItem($tipo, $id);
     }
 
     public function agregarItem(string $tipo, int $id): void
@@ -64,6 +94,7 @@ new #[Layout('layouts.app')] class extends Component
                 'cantidad' => 1,
                 'es_retornable' => true,
             ];
+            session()->flash('info_item', 'Equipo "' . $equipo->nombre . '" agregado a la solicitud.');
         } else {
             $insumo = Insumo::find($id);
             if (! $insumo || (float) $insumo->stock_actual <= 0) {
@@ -78,6 +109,7 @@ new #[Layout('layouts.app')] class extends Component
                 'es_retornable' => (bool) $insumo->es_retornable,
                 'stock_max' => (float) $insumo->stock_actual,
             ];
+            session()->flash('info_item', 'Insumo "' . $insumo->nombre . '" agregado a la solicitud.');
         }
     }
 
@@ -85,6 +117,7 @@ new #[Layout('layouts.app')] class extends Component
     {
         unset($this->itemsSeleccionados[$index]);
         $this->itemsSeleccionados = array_values($this->itemsSeleccionados);
+        session()->flash('info_item', 'Ítem eliminado de la solicitud.');
     }
 
     public function registrarSolicitud(PrestamoService $prestamoService): void
@@ -172,12 +205,17 @@ new #[Layout('layouts.app')] class extends Component
         </div>
         <button
             wire:click="abrirModalCrear"
-            class="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2.5 min-h-[44px] bg-red-700 hover:bg-red-800 text-white font-semibold text-sm rounded-lg shadow-sm hover:shadow transition active:scale-95"
+            class="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2.5 min-h-[44px] bg-red-700 hover:bg-red-800 text-white font-semibold text-sm rounded-lg shadow-sm hover:shadow transition active:scale-95 relative"
         >
             <svg class="w-5 h-5 me-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
             </svg>
-            Nueva Solicitud
+            <span>Nueva Solicitud</span>
+            @if(count($itemsSeleccionados) > 0)
+                <span class="ml-2 px-2 py-0.5 text-xs font-bold bg-white text-red-700 rounded-full shadow-xs">
+                    {{ count($itemsSeleccionados) }}
+                </span>
+            @endif
         </button>
     </div>
 
@@ -197,6 +235,34 @@ new #[Layout('layouts.app')] class extends Component
                 <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
             </svg>
             <span class="text-sm font-medium">{{ session('error') }}</span>
+        </div>
+    @endif
+
+    @if(session()->has('info_item') && ! $mostrarModalCrear)
+        <div class="mb-4 p-3.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 flex items-center justify-between gap-2 animate-in fade-in duration-150">
+            <div class="flex items-center gap-2 min-w-0">
+                <svg class="w-5 h-5 text-blue-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <span class="text-xs sm:text-sm font-medium truncate">{{ session('info_item') }}</span>
+            </div>
+            @if(count($itemsSeleccionados) > 0)
+                <button
+                    wire:click="abrirModalCrear"
+                    class="text-xs font-semibold text-blue-700 hover:text-blue-900 underline shrink-0"
+                >
+                    Ver Solicitud ({{ count($itemsSeleccionados) }}) &rarr;
+                </button>
+            @endif
+        </div>
+    @endif
+
+    @if(session()->has('error_item') && ! $mostrarModalCrear)
+        <div class="mb-4 p-3.5 rounded-lg bg-red-50 border border-red-200 text-red-800 flex items-center gap-2 animate-in fade-in duration-150">
+            <svg class="w-5 h-5 text-red-600 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+            </svg>
+            <span class="text-xs sm:text-sm font-medium">{{ session('error_item') }}</span>
         </div>
     @endif
 
@@ -246,13 +312,25 @@ new #[Layout('layouts.app')] class extends Component
                                             <div class="text-[11px] text-gray-500">{{ $eq->marca }} {{ $eq->modelo }} &bull; <span class="font-mono text-gray-600">{{ $eq->codigo_barras }}</span></div>
                                             <div class="text-[10px] text-gray-400 mt-0.5">Ubicación: {{ $eq->ubicacion->nombre ?? 'Pañol Central' }}</div>
                                         </div>
-                                        <button
-                                            wire:click="agregarItem('equipo', {{ $eq->id }})"
-                                            class="shrink-0 px-2 py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded text-[11px] font-medium transition"
-                                            title="Agregar a solicitud"
-                                        >
-                                            + Pedir
-                                        </button>
+                                        @php $enSolicitud = $this->estaSeleccionado('equipo', $eq->id); @endphp
+                                        @if($enSolicitud)
+                                            <button
+                                                wire:click="toggleItem('equipo', {{ $eq->id }})"
+                                                class="shrink-0 px-2 py-1 bg-emerald-50 hover:bg-red-50 text-emerald-700 hover:text-red-700 border border-emerald-300 hover:border-red-300 rounded text-[11px] font-semibold transition group flex items-center gap-1"
+                                                title="Haga clic para quitar de la solicitud"
+                                            >
+                                                <span class="group-hover:hidden">✓ En Solicitud</span>
+                                                <span class="hidden group-hover:inline">✕ Quitar</span>
+                                            </button>
+                                        @else
+                                            <button
+                                                wire:click="toggleItem('equipo', {{ $eq->id }})"
+                                                class="shrink-0 px-2 py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded text-[11px] font-medium transition"
+                                                title="Agregar a solicitud"
+                                            >
+                                                + Pedir
+                                            </button>
+                                        @endif
                                     </div>
                                 </div>
                             @endforeach
@@ -286,13 +364,25 @@ new #[Layout('layouts.app')] class extends Component
                                             </div>
                                         </div>
                                         @if((float)$ins->stock_actual > 0)
-                                            <button
-                                                wire:click="agregarItem('insumo', {{ $ins->id }})"
-                                                class="shrink-0 px-2 py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded text-[11px] font-medium transition"
-                                                title="Agregar a solicitud"
-                                            >
-                                                + Pedir
-                                            </button>
+                                            @php $enSolicitud = $this->estaSeleccionado('insumo', $ins->id); @endphp
+                                            @if($enSolicitud)
+                                                <button
+                                                    wire:click="toggleItem('insumo', {{ $ins->id }})"
+                                                    class="shrink-0 px-2 py-1 bg-emerald-50 hover:bg-red-50 text-emerald-700 hover:text-red-700 border border-emerald-300 hover:border-red-300 rounded text-[11px] font-semibold transition group flex items-center gap-1"
+                                                    title="Haga clic para quitar de la solicitud"
+                                                >
+                                                    <span class="group-hover:hidden">✓ En Solicitud</span>
+                                                    <span class="hidden group-hover:inline">✕ Quitar</span>
+                                                </button>
+                                            @else
+                                                <button
+                                                    wire:click="toggleItem('insumo', {{ $ins->id }})"
+                                                    class="shrink-0 px-2 py-1 bg-red-50 hover:bg-red-100 text-red-600 rounded text-[11px] font-medium transition"
+                                                    title="Agregar a solicitud"
+                                                >
+                                                    + Pedir
+                                                </button>
+                                            @endif
                                         @else
                                             <span class="text-[10px] text-gray-400 italic">Agotado</span>
                                         @endif
@@ -461,7 +551,18 @@ new #[Layout('layouts.app')] class extends Component
                             <label class="text-xs font-semibold text-gray-700">
                                 Ítems a Solicitar <span class="text-red-500">*</span>
                             </label>
-                            <span class="text-[11px] text-gray-400">Total ítems: {{ count($itemsSeleccionados) }}</span>
+                            <div class="flex items-center gap-2">
+                                <span class="text-[11px] text-gray-500 font-medium">Total ítems: {{ count($itemsSeleccionados) }}</span>
+                                @if(count($itemsSeleccionados) > 0)
+                                    <button
+                                        type="button"
+                                        wire:click="vaciarItems"
+                                        class="text-[11px] text-red-600 hover:text-red-800 underline font-medium"
+                                    >
+                                        Vaciar lista
+                                    </button>
+                                @endif
+                            </div>
                         </div>
 
                         @if(empty($itemsSeleccionados))
@@ -675,5 +776,39 @@ new #[Layout('layouts.app')] class extends Component
                 </div>
             </div>
         @endif
+    @endif
+
+    <!-- Barra flotante inferior para selección rápida (Móvil y Escritorio - PI-07 / CP-19) -->
+    @if(count($itemsSeleccionados) > 0 && ! $mostrarModalCrear && ! $mostrarModalDetalle)
+        <div class="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-6 sm:max-w-md z-40 bg-gray-900 text-white rounded-xl shadow-2xl p-3.5 border border-gray-700 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-bottom-4 duration-200">
+            <div class="flex items-center gap-2.5 min-w-0">
+                <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-red-600 text-xs font-bold text-white">
+                    {{ count($itemsSeleccionados) }}
+                </span>
+                <div class="truncate">
+                    <div class="text-xs font-semibold text-white truncate">
+                        {{ count($itemsSeleccionados) === 1 ? '1 material en canasta' : count($itemsSeleccionados) . ' materiales en canasta' }}
+                    </div>
+                    <div class="text-[10px] text-gray-400">Listo para formalizar solicitud</div>
+                </div>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+                <button
+                    type="button"
+                    wire:click="vaciarItems"
+                    class="text-xs text-gray-300 hover:text-white px-2 py-1 transition"
+                    title="Vaciar todos los ítems seleccionados"
+                >
+                    Vaciar
+                </button>
+                <button
+                    type="button"
+                    wire:click="abrirModalCrear"
+                    class="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white font-medium text-xs rounded-lg shadow transition active:scale-95"
+                >
+                    Ver y Enviar &rarr;
+                </button>
+            </div>
+        </div>
     @endif
 </div>
