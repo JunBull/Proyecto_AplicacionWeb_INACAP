@@ -20,6 +20,7 @@ class Insumo extends Model
         'es_retornable',
         'stock_actual',
         'stock_minimo',
+        'stock_minimo_clases',
         'ubicacion_id',
     ];
 
@@ -29,6 +30,7 @@ class Insumo extends Model
             'es_retornable' => 'boolean',
             'stock_actual' => 'decimal:2',
             'stock_minimo' => 'decimal:2',
+            'stock_minimo_clases' => 'integer',
         ];
     }
 

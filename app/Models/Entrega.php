@@ -18,6 +18,10 @@ class Entrega extends Model
         'entregado_por',
         'receptor_nombre',
         'receptor_tipo',
+        'receptor_credencial_rut',
+        'credencial_verificada',
+        'hora_entrega',
+        'hora_devolucion_acordada',
         'fecha_entrega',
     ];
 
@@ -25,6 +29,7 @@ class Entrega extends Model
     {
         return [
             'fecha_entrega' => 'datetime',
+            'credencial_verificada' => 'boolean',
         ];
     }
 

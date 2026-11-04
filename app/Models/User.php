@@ -89,6 +89,11 @@ class User extends Authenticatable
         return $this->belongsToMany(Carrera::class, 'carrera_usuario', 'usuario_id', 'carrera_id')->withTimestamps();
     }
 
+    public function asignaturas(): BelongsToMany
+    {
+        return $this->belongsToMany(Asignatura::class, 'asignatura_usuario', 'usuario_id', 'asignatura_id')->withTimestamps();
+    }
+
     public function fallasReportadas(): HasMany
     {
         return $this->hasMany(Falla::class, 'reportada_por');

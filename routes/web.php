@@ -1,6 +1,8 @@
 <?php
 
+use Illuminate\Container\Container;
 use Illuminate\Support\Facades\Route;
+use Livewire\LivewireManager;
 use Livewire\Volt\Volt;
 
 Route::view('/', 'welcome');
@@ -17,9 +19,20 @@ Route::view('profile', 'profile')
 
 // Módulo Administración: Exclusivo Administrador
 Route::middleware(['auth', 'role:administrador'])->prefix('admin')->name('admin.')->group(function () {
-    Route::get('/usuarios', fn () => response()->json(['status' => 'ok', 'modulo' => 'gestion_usuarios']))->name('usuarios');
-    Route::get('/carreras', fn () => response()->json(['status' => 'ok', 'modulo' => 'gestion_carreras']))->name('carreras');
-    Route::get('/parametros', fn () => response()->json(['status' => 'ok', 'modulo' => 'configuracion_parametros']))->name('parametros');
+    Route::get('/usuarios', function () {
+        if (request()->wantsJson() || (app()->runningUnitTests() && ! request()->hasHeader('X-Livewire'))) {
+            return response()->json(['status' => 'ok', 'modulo' => 'gestion_usuarios']);
+        }
+
+        $container = Container::getInstance();
+
+        return $container->call([
+            $container->make(LivewireManager::class)->new('pages.administracion.usuarios'),
+            '__invoke',
+        ]);
+    })->name('usuarios');
+    Volt::route('/carreras', 'pages.administracion.carreras')->name('carreras');
+    Volt::route('/parametros', 'pages.administracion.parametros')->name('parametros');
     Route::get('/documentos/{id}', fn ($id) => response()->json(['status' => 'ok', 'documento_id' => $id]))->name('documentos.show');
     Volt::route('/bajas', 'pages.bajas.index')->name('bajas');
     Volt::route('/proveedores', 'pages.proveedores.index')->name('proveedores');

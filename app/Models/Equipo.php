@@ -22,6 +22,7 @@ class Equipo extends Model
         'numero_serie',
         'estado',
         'criticidad',
+        'reservado_clases',
         'ubicacion_id',
         'compra_id',
         'fotografia',
@@ -32,6 +33,7 @@ class Equipo extends Model
     {
         return [
             'fecha_adquisicion' => 'date',
+            'reservado_clases' => 'boolean',
         ];
     }
 

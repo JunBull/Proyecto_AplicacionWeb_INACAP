@@ -16,8 +16,11 @@ class SolicitudMaterial extends Model
     protected $fillable = [
         'solicitante_id',
         'revisada_por',
+        'asignatura_id',
+        'ubicacion_destino_id',
         'fecha_solicitud',
         'fecha_requerida',
+        'hora_requerida',
         'estado',
         'observaciones',
     ];
@@ -38,6 +41,16 @@ class SolicitudMaterial extends Model
     public function revisor(): BelongsTo
     {
         return $this->belongsTo(User::class, 'revisada_por');
+    }
+
+    public function asignatura(): BelongsTo
+    {
+        return $this->belongsTo(Asignatura::class, 'asignatura_id');
+    }
+
+    public function ubicacionDestino(): BelongsTo
+    {
+        return $this->belongsTo(Ubicacion::class, 'ubicacion_destino_id');
     }
 
     public function detalles(): HasMany

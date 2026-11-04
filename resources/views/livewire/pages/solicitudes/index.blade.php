@@ -1,8 +1,11 @@
 <?php
 
+use App\Models\Asignatura;
 use App\Models\Equipo;
 use App\Models\Insumo;
 use App\Models\SolicitudMaterial;
+use App\Models\Ubicacion;
+use App\Services\FallaService;
 use App\Services\PrestamoService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -14,11 +17,16 @@ new #[Layout('layouts.app')] class extends Component
 {
     public string $buscarDisponibilidad = '';
     public string $filtroTipoItem = 'todos'; // todos, equipos, insumos
+    // Pestaña activa en panel principal
+    public string $pestanaActiva = 'solicitudes'; // 'solicitudes' | 'incidencias'
     public string $filtroEstadoSolicitud = 'todos';
 
     // Formulario de nueva solicitud
     public bool $mostrarModalCrear = false;
     public string $fecha_requerida = '';
+    public string $hora_requerida = '08:30';
+    public ?int $asignatura_id = null;
+    public ?int $ubicacion_destino_id = null;
     public string $observaciones = '';
     public array $itemsSeleccionados = []; // [['tipo' => 'insumo'|'equipo', 'id' => int, 'nombre' => string, 'cantidad' => float, 'es_retornable' => bool]]
 
@@ -26,10 +34,34 @@ new #[Layout('layouts.app')] class extends Component
     public bool $mostrarModalDetalle = false;
     public ?int $solicitudDetalleId = null;
 
+    // Reporte de Incidencias (Equipo / Insumo en mal estado - CP-28)
+    public bool $mostrarModalIncidencia = false;
+    public string $tipoIncidencia = 'equipo';
+    public ?int $incidenciaEquipoId = null;
+    public ?int $incidenciaInsumoId = null;
+    public ?int $incidenciaUbicacionId = null;
+    public string $incidenciaDescripcion = '';
+    public string $incidenciaSeveridad = 'media';
+
     public function mount(): void
     {
         Gate::authorize('viewAny', SolicitudMaterial::class);
         $this->fecha_requerida = Carbon::tomorrow()->toDateString();
+        $this->hora_requerida = '08:30';
+        $primerLab = Ubicacion::where('tipo', 'laboratorio')->first() ?? Ubicacion::first();
+        if ($primerLab) {
+            $this->ubicacion_destino_id = $primerLab->id;
+        }
+    }
+
+    public function asignaturasDocente()
+    {
+        return Auth::user()->asignaturas()->where('activo', true)->orderBy('nombre')->get();
+    }
+
+    public function laboratoriosDisponibles()
+    {
+        return Ubicacion::whereIn('tipo', ['laboratorio', 'panol'])->orWhereNull('padre_id')->orderBy('nombre')->get();
     }
 
     public function abrirModalCrear(): void
@@ -38,7 +70,54 @@ new #[Layout('layouts.app')] class extends Component
         if (empty($this->fecha_requerida)) {
             $this->fecha_requerida = Carbon::tomorrow()->toDateString();
         }
+        $this->hora_requerida = '08:30';
+        $this->asignatura_id = null;
+        $primerLab = Ubicacion::where('tipo', 'laboratorio')->first() ?? Ubicacion::first();
+        $this->ubicacion_destino_id = $primerLab?->id;
         $this->mostrarModalCrear = true;
+    }
+
+    public function abrirModalIncidencia(): void
+    {
+        $this->resetValidation();
+        $this->tipoIncidencia = 'equipo';
+        $this->incidenciaEquipoId = Equipo::first()?->id;
+        $this->incidenciaInsumoId = Insumo::first()?->id;
+        $primerLab = Ubicacion::where('tipo', 'laboratorio')->first() ?? Ubicacion::first();
+        $this->incidenciaUbicacionId = $primerLab?->id;
+        $this->incidenciaDescripcion = '';
+        $this->incidenciaSeveridad = 'media';
+        $this->mostrarModalIncidencia = true;
+    }
+
+    public function registrarIncidencia(FallaService $fallaService): void
+    {
+        $this->validate([
+            'incidenciaDescripcion' => 'required|string|min:10',
+            'incidenciaUbicacionId' => 'required|exists:ubicaciones,id',
+        ], [
+            'incidenciaDescripcion.required' => 'Debe ingresar una descripción detallada de la anomalía técnica.',
+            'incidenciaDescripcion.min' => 'La descripción debe tener al menos 10 caracteres.',
+            'incidenciaUbicacionId.required' => 'Debe indicar el laboratorio o sala donde se detectó el desperfecto.',
+        ]);
+
+        try {
+            $falla = $fallaService->reportarIncidencia(Auth::user(), [
+                'tipo_item' => $this->tipoIncidencia,
+                'equipo_id' => $this->tipoIncidencia === 'equipo' ? $this->incidenciaEquipoId : null,
+                'insumo_id' => $this->tipoIncidencia === 'insumo' ? $this->incidenciaInsumoId : null,
+                'ubicacion_id' => $this->incidenciaUbicacionId,
+                'descripcion' => $this->incidenciaDescripcion,
+                'severidad' => $this->incidenciaSeveridad,
+            ]);
+
+            $this->mostrarModalIncidencia = false;
+            $this->pestanaActiva = 'incidencias';
+            session()->flash('mensaje', "¡Incidencia #{$falla->id} reportada exitosamente! Se ha generado el reporte formal en PDF y se notificó por correo a Pañol y Administración.");
+            session()->flash('pdf_url', asset("storage/incidencias/Reporte_Incidencia_{$falla->id}.pdf"));
+        } catch (\Exception $e) {
+            $this->addError('incidencia', $e->getMessage());
+        }
     }
 
     public function vaciarItems(): void
@@ -126,11 +205,15 @@ new #[Layout('layouts.app')] class extends Component
 
         $this->validate([
             'fecha_requerida' => 'required|date|after_or_equal:today',
+            'hora_requerida' => 'required|string',
+            'ubicacion_destino_id' => 'required|exists:ubicaciones,id',
             'itemsSeleccionados' => 'required|array|min:1',
             'itemsSeleccionados.*.cantidad' => 'required|numeric|min:1',
         ], [
             'fecha_requerida.required' => 'La fecha requerida es obligatoria.',
             'fecha_requerida.after_or_equal' => 'La fecha requerida no puede ser anterior a hoy.',
+            'hora_requerida.required' => 'La hora requerida es obligatoria para la preparación en pañol.',
+            'ubicacion_destino_id.required' => 'Debe indicar la sala o laboratorio de destino.',
             'itemsSeleccionados.min' => 'Debe agregar al menos un ítem a la solicitud.',
             'itemsSeleccionados.*.cantidad.min' => 'La cantidad mínima por ítem es 1.',
         ]);
@@ -149,6 +232,9 @@ new #[Layout('layouts.app')] class extends Component
                 Auth::user(),
                 [
                     'fecha_requerida' => $this->fecha_requerida,
+                    'hora_requerida' => $this->hora_requerida,
+                    'asignatura_id' => $this->asignatura_id ?: null,
+                    'ubicacion_destino_id' => $this->ubicacion_destino_id,
                     'observaciones' => $this->observaciones,
                 ],
                 $itemsFormateados
@@ -185,6 +271,14 @@ new #[Layout('layouts.app')] class extends Component
         return $query->get();
     }
 
+    public function misIncidencias()
+    {
+        return \App\Models\Falla::with(['equipo', 'insumo', 'ubicacion', 'documentos'])
+            ->where('reportada_por', Auth::id())
+            ->latest('fecha_reporte')
+            ->get();
+    }
+
     public function disponibilidad(PrestamoService $prestamoService)
     {
         return $prestamoService->consultarDisponibilidad($this->buscarDisponibilidad);
@@ -192,40 +286,57 @@ new #[Layout('layouts.app')] class extends Component
 }; ?>
 
 <div class="py-6 px-3 sm:px-6 lg:px-8 max-w-7xl mx-auto">
-    <!-- Encabezado adaptable a dispositivos móviles (CP-19, PI-07) -->
+    <!-- Encabezado adaptable a dispositivos móviles (CP-19, PI-07, CP-28) -->
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
             <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
                 <svg class="w-7 h-7 text-red-600 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
                 </svg>
-                Portal Docente: Solicitud de Materiales
+                Portal Docente: Solicitud de Materiales e Incidencias
             </h1>
-            <p class="text-sm text-gray-500 mt-1">Consulte disponibilidad en pañol y registre requerimientos de equipos e insumos.</p>
+            <p class="text-sm text-gray-500 mt-1">Consulte disponibilidad en pañol, solicite insumos para talleres y reporte incidencias técnicas con respaldo formal en PDF (CP-28).</p>
         </div>
-        <button
-            wire:click="abrirModalCrear"
-            class="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2.5 min-h-[44px] bg-red-700 hover:bg-red-800 text-white font-semibold text-sm rounded-lg shadow-sm hover:shadow transition active:scale-95 relative"
-        >
-            <svg class="w-5 h-5 me-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
-            </svg>
-            <span>Nueva Solicitud</span>
-            @if(count($itemsSeleccionados) > 0)
-                <span class="ml-2 px-2 py-0.5 text-xs font-bold bg-white text-red-700 rounded-full shadow-xs">
-                    {{ count($itemsSeleccionados) }}
-                </span>
-            @endif
-        </button>
+        <div class="flex items-center gap-2 w-full sm:w-auto">
+            <button
+                wire:click="abrirModalIncidencia"
+                class="w-full sm:w-auto inline-flex items-center justify-center px-3.5 py-2.5 min-h-[44px] bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs sm:text-sm rounded-lg shadow-sm hover:shadow transition active:scale-95"
+            >
+                <svg class="w-4 h-4 me-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                Reportar Incidencia
+            </button>
+            <button
+                wire:click="abrirModalCrear"
+                class="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2.5 min-h-[44px] bg-red-700 hover:bg-red-800 text-white font-semibold text-sm rounded-lg shadow-sm hover:shadow transition active:scale-95 relative"
+            >
+                <svg class="w-5 h-5 me-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                </svg>
+                <span>Nueva Solicitud</span>
+                @if(count($itemsSeleccionados) > 0)
+                    <span class="ml-2 px-2 py-0.5 text-xs font-bold bg-white text-red-700 rounded-full shadow-xs">
+                        {{ count($itemsSeleccionados) }}
+                    </span>
+                @endif
+            </button>
+        </div>
     </div>
 
     <!-- Alertas Flash -->
     @if(session()->has('mensaje'))
-        <div class="mb-4 p-4 rounded-lg bg-green-50 border border-green-200 text-green-800 flex items-center gap-2">
-            <svg class="w-5 h-5 text-green-600 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
-            </svg>
-            <span class="text-sm font-medium">{{ session('mensaje') }}</span>
+        <div class="mb-4 p-4 rounded-lg bg-green-50 border border-green-200 text-green-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+            <div class="flex items-center gap-2">
+                <svg class="w-5 h-5 text-green-600 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                </svg>
+                <span class="text-sm font-medium">{{ session('mensaje') }}</span>
+            </div>
+            @if(session()->has('pdf_url'))
+                <a href="{{ session('pdf_url') }}" target="_blank" class="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg shadow-xs transition shrink-0">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                    Ver / Descargar PDF del Reporte
+                </a>
+            @endif
         </div>
     @endif
 
@@ -395,8 +506,34 @@ new #[Layout('layouts.app')] class extends Component
             </div>
         </div>
 
-        <!-- Columna Central/Derecha: Mis Solicitudes Registradas -->
+        <!-- Columna Central/Derecha: Mis Solicitudes Registradas e Incidencias -->
         <div class="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
+            @php 
+                $listaSolicitudes = $this->solicitudes(); 
+                $listaIncidencias = $this->misIncidencias(); 
+            @endphp
+
+            <!-- Selector de Pestañas -->
+            <div class="flex items-center gap-2 border-b border-gray-200 mb-5">
+                <button
+                    wire:click="$set('pestanaActiva', 'solicitudes')"
+                    class="pb-2.5 px-3 text-xs sm:text-sm font-semibold transition border-b-2 flex items-center gap-1.5 {{ $pestanaActiva === 'solicitudes' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-800' }}"
+                >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                    <span>Mis Solicitudes de Material</span>
+                    <span class="text-[11px] px-1.5 py-0.5 rounded-full {{ $pestanaActiva === 'solicitudes' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">{{ $listaSolicitudes->count() }}</span>
+                </button>
+                <button
+                    wire:click="$set('pestanaActiva', 'incidencias')"
+                    class="pb-2.5 px-3 text-xs sm:text-sm font-semibold transition border-b-2 flex items-center gap-1.5 {{ $pestanaActiva === 'incidencias' ? 'border-amber-600 text-amber-600' : 'border-transparent text-gray-500 hover:text-gray-800' }}"
+                >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    <span>Mis Incidencias Reportadas</span>
+                    <span class="text-[11px] px-1.5 py-0.5 rounded-full {{ $pestanaActiva === 'incidencias' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600' }}">{{ $listaIncidencias->count() }}</span>
+                </button>
+            </div>
+
+            @if($pestanaActiva === 'solicitudes')
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 border-b border-gray-100 pb-3">
                 <div>
                     <h2 class="text-base font-semibold text-gray-900">Mis Solicitudes Realizadas</h2>
@@ -419,8 +556,6 @@ new #[Layout('layouts.app')] class extends Component
                     </select>
                 </div>
             </div>
-
-            @php $listaSolicitudes = $this->solicitudes(); @endphp
 
             @if($listaSolicitudes->isEmpty())
                 <div class="text-center py-12">
@@ -496,6 +631,63 @@ new #[Layout('layouts.app')] class extends Component
                     @endforeach
                 </div>
             @endif
+            @else
+                <!-- Listado de Incidencias Técnicas Reportadas por el Docente (CP-28) -->
+                @if($listaIncidencias->isEmpty())
+                    <div class="text-center py-12">
+                        <svg class="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                        </svg>
+                        <h3 class="text-sm font-medium text-gray-700">No ha reportado incidencias</h3>
+                        <p class="text-xs text-gray-400 mt-1">Si detecta algún desperfecto en un equipo o insumo de taller, use el botón superior "Reportar Incidencia".</p>
+                    </div>
+                @else
+                    <div class="space-y-3">
+                        @foreach($listaIncidencias as $inc)
+                            <div class="p-4 rounded-xl border border-gray-200 hover:border-gray-300 transition bg-white shadow-xs">
+                                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-2.5">
+                                    <div class="flex items-center gap-2">
+                                        <span class="font-mono font-bold text-xs text-gray-800">#INC-{{ $inc->id }}</span>
+                                        <x-status-badge :estado="$inc->estado" />
+                                        <span class="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded {{ $inc->severidad === 'critica' ? 'bg-red-100 text-red-700' : ($inc->severidad === 'alta' ? 'bg-orange-100 text-orange-700' : 'bg-yellow-100 text-yellow-700') }}">
+                                            Severidad {{ $inc->severidad ?? 'Media' }}
+                                        </span>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-[11px] text-gray-400">{{ \Carbon\Carbon::parse($inc->fecha_reporte)->translatedFormat('d M Y, H:i') }}</span>
+                                        <a
+                                            href="{{ asset('storage/incidencias/Reporte_Incidencia_' . $inc->id . '.pdf') }}"
+                                            target="_blank"
+                                            class="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-semibold rounded-lg border border-amber-200 shadow-2xs transition"
+                                        >
+                                            <svg class="w-3.5 h-3.5 text-amber-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                                            Ver PDF
+                                        </a>
+                                    </div>
+                                </div>
+                                <div class="mt-2.5 text-xs text-gray-700">
+                                    <div class="font-semibold text-gray-900 flex items-center gap-1.5">
+                                        @if($inc->equipo)
+                                            <span class="px-1.5 py-0.5 text-[10px] bg-blue-50 text-blue-700 rounded font-bold uppercase">Equipo</span>
+                                            {{ $inc->equipo->nombre }} (Marca: {{ $inc->equipo->marca }}, Serie: {{ $inc->equipo->numero_serie }})
+                                        @elseif($inc->insumo)
+                                            <span class="px-1.5 py-0.5 text-[10px] bg-purple-50 text-purple-700 rounded font-bold uppercase">Insumo</span>
+                                            {{ $inc->insumo->nombre }} (Código: {{ $inc->insumo->codigo_barras }})
+                                        @endif
+                                    </div>
+                                    <p class="mt-1.5 text-gray-600 bg-gray-50/70 p-2 rounded border border-gray-100 italic">
+                                        "{{ $inc->descripcion }}"
+                                    </p>
+                                    <div class="mt-2 text-[11px] text-gray-400 flex items-center justify-between">
+                                        <span>Laboratorio / Ubicación: <strong class="text-gray-600">{{ $inc->ubicacion?->nombre ?? 'Pañol' }}</strong></span>
+                                        <span>Reportado por: {{ $inc->reportador?->name }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+                @endif
+            @endif
         </div>
     </div>
 
@@ -529,20 +721,78 @@ new #[Layout('layouts.app')] class extends Component
                         </div>
                     @endif
 
-                    <!-- Fecha Requerida -->
-                    <div>
-                        <label class="block text-xs font-semibold text-gray-700 mb-1">
-                            Fecha Requerida de Retiro <span class="text-red-500">*</span>
-                        </label>
-                        <input
-                            type="date"
-                            wire:model="fecha_requerida"
-                            min="{{ date('Y-m-d') }}"
-                            class="w-full text-sm border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500"
-                        />
-                        @error('fecha_requerida')
-                            <p class="text-xs text-red-600 mt-1">{{ $message }}</p>
-                        @enderror
+                    <!-- Parámetros Académicos y Horarios de la Solicitud (CP-23, Sección 3.2) -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <!-- Fecha Requerida -->
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">
+                                Fecha Requerida de Retiro <span class="text-red-500">*</span>
+                            </label>
+                            <input
+                                type="date"
+                                wire:model="fecha_requerida"
+                                min="{{ date('Y-m-d') }}"
+                                class="w-full text-xs border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500"
+                            />
+                            @error('fecha_requerida')
+                                <p class="text-[11px] text-red-600 mt-1 font-semibold">{{ $message }}</p>
+                            @enderror
+                        </div>
+
+                        <!-- Hora Requerida -->
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">
+                                Hora Requerida en Laboratorio <span class="text-red-500">*</span>
+                            </label>
+                            <input
+                                type="time"
+                                wire:model="hora_requerida"
+                                class="w-full text-xs border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500"
+                            />
+                            @error('hora_requerida')
+                                <p class="text-[11px] text-red-600 mt-1 font-semibold">{{ $message }}</p>
+                            @enderror
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <!-- Asignatura / Taller Docente -->
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">
+                                Asignatura / Taller Práctico <span class="text-red-500">*</span>
+                            </label>
+                            <select
+                                wire:model="asignatura_id"
+                                class="w-full text-xs border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500"
+                            >
+                                <option value="">Otros / Actividad Académica General</option>
+                                @foreach($this->asignaturasDocente() as $asig)
+                                    <option value="{{ $asig->id }}">{{ $asig->codigo }} - {{ $asig->nombre }}</option>
+                                @endforeach
+                            </select>
+                            @error('asignatura_id')
+                                <p class="text-[11px] text-red-600 mt-1 font-semibold">{{ $message }}</p>
+                            @enderror
+                        </div>
+
+                        <!-- Sala / Laboratorio de Destino -->
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700 mb-1">
+                                Sala / Laboratorio de Destino <span class="text-red-500">*</span>
+                            </label>
+                            <select
+                                wire:model="ubicacion_destino_id"
+                                class="w-full text-xs border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500"
+                            >
+                                <option value="">Seleccione Laboratorio / Taller...</option>
+                                @foreach($this->laboratoriosDisponibles() as $lab)
+                                    <option value="{{ $lab->id }}">{{ $lab->nombre }} ({{ ucfirst($lab->tipo) }})</option>
+                                @endforeach
+                            </select>
+                            @error('ubicacion_destino_id')
+                                <p class="text-[11px] text-red-600 mt-1 font-semibold">{{ $message }}</p>
+                            @enderror
+                        </div>
                     </div>
 
                     <!-- Ítems Agregados -->
@@ -808,6 +1058,110 @@ new #[Layout('layouts.app')] class extends Component
                 >
                     Ver y Enviar &rarr;
                 </button>
+            </div>
+        </div>
+    @endif
+
+    <!-- MODAL: Reporte de Incidencias con PDF y Envío Asíncrono (CP-28, Sección 3.6) -->
+    @if($mostrarModalIncidencia)
+        <div class="fixed inset-0 z-50 overflow-y-auto bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+            <div class="bg-white rounded-2xl shadow-xl w-full max-w-xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 border border-slate-200">
+                <div class="px-5 py-4 bg-amber-600 text-white flex items-center justify-between">
+                    <h3 class="text-base font-bold flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                        Reportar Incidencia (Equipo / Insumo en Mal Estado)
+                    </h3>
+                    <button wire:click="$set('mostrarModalIncidencia', false)" class="text-white/80 hover:text-white">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+
+                <div class="p-5 space-y-4 max-h-[80vh] overflow-y-auto text-xs sm:text-sm">
+                    <p class="text-xs text-slate-500">
+                        Al enviar este reporte, el sistema generará automáticamente un comprobante PDF institucional respaldado en el expediente digital y notificará inmediatamente a Pañoleros y Administradores.
+                    </p>
+
+                    @error('incidencia')
+                        <div class="p-3 rounded-lg bg-red-50 text-red-700 text-xs font-semibold">
+                            {{ $message }}
+                        </div>
+                    @enderror
+
+                    <!-- Tipo de Recurso: Equipo o Insumo -->
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">Tipo de Recurso Afectado *</label>
+                        <div class="grid grid-cols-2 gap-3">
+                            <label class="flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer {{ $tipoIncidencia === 'equipo' ? 'border-amber-500 bg-amber-50 text-amber-900 font-bold' : 'border-slate-200 text-slate-700' }}">
+                                <input type="radio" wire:model.live="tipoIncidencia" value="equipo" class="text-amber-600 focus:ring-amber-500">
+                                <span>Equipo / Maquinaria</span>
+                            </label>
+                            <label class="flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer {{ $tipoIncidencia === 'insumo' ? 'border-amber-500 bg-amber-50 text-amber-900 font-bold' : 'border-slate-200 text-slate-700' }}">
+                                <input type="radio" wire:model.live="tipoIncidencia" value="insumo" class="text-amber-600 focus:ring-amber-500">
+                                <span>Insumo / Material</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Selector específico según tipo -->
+                    @if($tipoIncidencia === 'equipo')
+                        <div>
+                            <label class="block font-semibold text-slate-700 mb-1">Seleccione el Equipo Afectado *</label>
+                            <select wire:model="incidenciaEquipoId" class="w-full text-xs sm:text-sm rounded-lg border-slate-300 focus:border-amber-500 focus:ring-amber-500">
+                                @foreach(\App\Models\Equipo::orderBy('nombre')->get() as $eq)
+                                    <option value="{{ $eq->id }}">{{ $eq->nombre }} (Marca: {{ $eq->marca }} | S/N: {{ $eq->numero_serie }})</option>
+                                @endforeach
+                            </select>
+                        </div>
+                    @else
+                        <div>
+                            <label class="block font-semibold text-slate-700 mb-1">Seleccione el Insumo Afectado *</label>
+                            <select wire:model="incidenciaInsumoId" class="w-full text-xs sm:text-sm rounded-lg border-slate-300 focus:border-amber-500 focus:ring-amber-500">
+                                @foreach(\App\Models\Insumo::orderBy('nombre')->get() as $ins)
+                                    <option value="{{ $ins->id }}">{{ $ins->nombre }} (Código: {{ $ins->codigo_barras }})</option>
+                                @endforeach
+                            </select>
+                        </div>
+                    @endif
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <!-- Ubicación / Sala donde se detectó -->
+                        <div>
+                            <label class="block font-semibold text-slate-700 mb-1">Laboratorio / Taller *</label>
+                            <select wire:model="incidenciaUbicacionId" class="w-full text-xs sm:text-sm rounded-lg border-slate-300 focus:border-amber-500 focus:ring-amber-500">
+                                @foreach($this->laboratoriosDisponibles() as $lab)
+                                    <option value="{{ $lab->id }}">{{ $lab->nombre }}</option>
+                                @endforeach
+                            </select>
+                            @error('incidenciaUbicacionId') <span class="text-[11px] text-red-600 font-semibold">{{ $message }}</span> @enderror
+                        </div>
+
+                        <!-- Severidad -->
+                        <div>
+                            <label class="block font-semibold text-slate-700 mb-1">Nivel de Severidad</label>
+                            <select wire:model="incidenciaSeveridad" class="w-full text-xs sm:text-sm rounded-lg border-slate-300 focus:border-amber-500 focus:ring-amber-500">
+                                <option value="baja">Baja (Anomalía estética o menor)</option>
+                                <option value="media">Media (Falla parcial / funcional)</option>
+                                <option value="alta">Alta (Equipo inoperativo / riesgo eléctrico)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Descripción del desperfecto -->
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">Descripción del Desperfecto o Avería *</label>
+                        <textarea wire:model="incidenciaDescripcion" rows="4" placeholder="Detalle los síntomas, ruidos extraños, componentes rotos o fallas detectadas..." class="w-full text-xs sm:text-sm rounded-lg border-slate-300 focus:border-amber-500 focus:ring-amber-500"></textarea>
+                        @error('incidenciaDescripcion') <span class="text-[11px] text-red-600 font-semibold">{{ $message }}</span> @enderror
+                    </div>
+                </div>
+
+                <div class="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-3">
+                    <button wire:click="$set('mostrarModalIncidencia', false)" type="button" class="px-4 py-2 text-xs sm:text-sm font-semibold text-slate-600 hover:bg-slate-200 rounded-lg">
+                        Cancelar
+                    </button>
+                    <button wire:click="registrarIncidencia" type="button" class="px-5 py-2 text-xs sm:text-sm font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-sm">
+                        Emitir Reporte y Generar PDF
+                    </button>
+                </div>
             </div>
         </div>
     @endif

@@ -31,6 +31,11 @@ class Carrera extends Model
         return $this->belongsToMany(User::class, 'carrera_usuario', 'carrera_id', 'usuario_id')->withTimestamps();
     }
 
+    public function asignaturas(): HasMany
+    {
+        return $this->hasMany(Asignatura::class, 'carrera_id');
+    }
+
     public function ubicaciones(): HasMany
     {
         return $this->hasMany(Ubicacion::class, 'carrera_id');

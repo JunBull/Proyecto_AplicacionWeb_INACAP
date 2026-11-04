@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 class Falla extends Model
 {
@@ -15,6 +16,8 @@ class Falla extends Model
 
     protected $fillable = [
         'equipo_id',
+        'insumo_id',
+        'ubicacion_id',
         'reportada_por',
         'atendida_por',
         'descripcion',
@@ -34,6 +37,16 @@ class Falla extends Model
         return $this->belongsTo(Equipo::class, 'equipo_id');
     }
 
+    public function insumo(): BelongsTo
+    {
+        return $this->belongsTo(Insumo::class, 'insumo_id');
+    }
+
+    public function ubicacion(): BelongsTo
+    {
+        return $this->belongsTo(Ubicacion::class, 'ubicacion_id');
+    }
+
     public function reportador(): BelongsTo
     {
         return $this->belongsTo(User::class, 'reportada_por');
@@ -47,5 +60,10 @@ class Falla extends Model
     public function bajasReemplazos(): HasMany
     {
         return $this->hasMany(BajaReemplazo::class, 'falla_id');
+    }
+
+    public function documentos(): MorphMany
+    {
+        return $this->morphMany(Documento::class, 'documentable');
     }
 }

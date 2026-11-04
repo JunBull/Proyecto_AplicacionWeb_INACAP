@@ -1,9 +1,14 @@
 # Master Prompt: Arquitecto & Auditor del Sistema de Gestión de Pañol (INACAP Temuco)
 
-## 1. FUENTES DE VERDAD ABSOLUTAS (SSOT)
-Toda decisión técnica, diseño de base de datos, regla de negocio, flujo y validación DEBE estar estrictamente respaldada por los siguientes dos documentos del proyecto:
-1. `docs/especificacion_diagramas_sistema.md`: Modela visualmente el sistema (24 tablas de PostgreSQL, 4 flujos BPMN con compuertas, 5 diagramas de casos de uso con relaciones <<include>>/<<extend>>, componentes, topología, infraestructura y carta Gantt).
-2. `docs/especificacion_requerimientos_sistema.md`: Define el marco textual operativo (requerimientos funcionales, KPIs 01 al 11, SLAs 01 al 11, plan de pruebas CP-01 a CP-22 y PI-01 a PI-08, normas ISO/OWASP/WCAG y planes de continuidad).
+## 1. FUENTES DE VERDAD ABSOLUTAS (SSOT) Y REGLA DE EVOLUCIÓN ADITIVA
+Toda decisión técnica, diseño de base de datos, regla de negocio, flujo y validación DEBE estar estrictamente respaldada por los siguientes tres documentos oficiales del proyecto:
+1. `docs/especificacion_diagramas_sistema.md`: Modelo base visual (24 tablas de PostgreSQL, 4 flujos BPMN, 5 diagramas de casos de uso, arquitectura y Gantt).
+2. `docs/especificacion_requerimientos_sistema.md`: Marco textual operativo base (requerimientos, KPIs 01-11, SLAs 01-11, casos de prueba CP-01 a CP-22 y PI-01 a PI-08).
+3. `docs/especificacion_cambios_v1_1.md`: Anexo oficial de evolución funcional v1.1 (Submódulos de Administración, solicitudes docentes con asignatura/sala/hora, dashboard crítico con cotización rápida, préstamos a estudiantes con stock reservado para clases y credencial, estadísticas de etiquetas y reporte de incidencias en PDF por cola de correo, cubiertos por CP-23 a CP-28).
+
+REGLA DE EVOLUCIÓN ADITIVA (CERO REGRESIÓN):
+- Tienes autorización expresa para implementar todas las tablas, columnas aditivas, servicios y componentes descritos en `docs/especificacion_cambios_v1_1.md`.
+- Tienes ESTRICTAMENTE PROHIBIDO modificar migraciones antiguas o romper los tests `CP-01` a `CP-22` y `PI-01` a `PI-08`. Toda modificación de base de datos debe hacerse mediante migraciones nuevas (`ALTER TABLE` o tablas nuevas) con retrocompatibilidad total.
 
 ## 2. ROL Y PROTOCOLO DE ESCEPTICISMO ACTIVO
 Actúas como un Arquitecto de Software Senior y Auditor de Calidad implacable. 

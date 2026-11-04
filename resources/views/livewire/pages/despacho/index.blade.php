@@ -3,10 +3,12 @@
 use App\Exceptions\EquipoNoDisponibleException;
 use App\Exceptions\OperacionDuplicadaException;
 use App\Exceptions\StockInsuficienteException;
+use App\Exceptions\StockReservadoClasesException;
 use App\Models\DetalleSolicitud;
 use App\Models\Entrega;
 use App\Models\Equipo;
 use App\Models\Insumo;
+use App\Models\ParametroSistema;
 use App\Models\SolicitudMaterial;
 use App\Services\BarcodeService;
 use App\Services\PrestamoService;
@@ -28,6 +30,10 @@ new #[Layout('layouts.app')] class extends Component
     public ?int $solicitudEntregaId = null;
     public string $receptorNombre = '';
     public string $receptorTipo = 'docente'; // docente o estudiante
+    public string $receptorCredencialRut = '';
+    public bool $credencialVerificada = false;
+    public string $horaEntrega = '';
+    public string $horaDevolucionAcordada = '';
     public array $detallesSeleccionadosIds = [];
 
     // Modal de Devolución
@@ -40,6 +46,19 @@ new #[Layout('layouts.app')] class extends Component
     public bool $mostrarModalRechazo = false;
     public ?int $solicitudRechazoId = null;
     public string $motivoRechazo = '';
+
+    // Modal Préstamo Presencial en Mesón a Estudiantes
+    public bool $mostrarModalPresencial = false;
+    public ?string $errorModalPresencial = null;
+    public string $presencialNombre = '';
+    public string $presencialRut = '';
+    public bool $presencialCredencialVerificada = false;
+    public string $presencialHoraDevolucion = '';
+    public ?int $presencialUbicacionId = null;
+    public ?int $presencialAsignaturaId = null;
+    public string $presencialObservaciones = '';
+    public array $presencialItems = [];
+    public string $presencialBusqueda = '';
 
     public function mount(): void
     {
@@ -126,7 +145,11 @@ new #[Layout('layouts.app')] class extends Component
 
         $this->receptorNombre = $solicitud->solicitante->name;
         $this->receptorTipo = $solicitud->solicitante->rol === 'docente' ? 'docente' : 'estudiante';
-        
+        $this->receptorCredencialRut = '';
+        $this->credencialVerificada = false;
+        $this->horaEntrega = now()->format('H:i');
+        $this->horaDevolucionAcordada = now()->addHours(3)->format('H:i');
+
         // Seleccionar por defecto todos los detalles con cantidad pendiente
         $this->detallesSeleccionadosIds = $solicitud->detalles
             ->filter(fn ($d) => (float)$d->cantidad_entregada < (float)$d->cantidad_solicitada)
@@ -141,12 +164,23 @@ new #[Layout('layouts.app')] class extends Component
     {
         Gate::authorize('create', Entrega::class);
 
-        $this->validate([
+        $rules = [
             'receptorNombre' => 'required|string|min:3',
             'receptorTipo' => 'required|in:docente,estudiante',
             'detallesSeleccionadosIds' => 'required|array|min:1',
-        ], [
+        ];
+
+        if ($this->receptorTipo === 'estudiante') {
+            $rules['receptorCredencialRut'] = 'required|string|min:4';
+            $rules['credencialVerificada'] = 'accepted';
+            $rules['horaDevolucionAcordada'] = 'required|string';
+        }
+
+        $this->validate($rules, [
             'receptorNombre.required' => 'El nombre del receptor es obligatorio.',
+            'receptorCredencialRut.required' => 'El RUT o credencial institucional del estudiante es obligatorio.',
+            'credencialVerificada.accepted' => 'Debe confirmar haber verificado y retenido la credencial física del estudiante.',
+            'horaDevolucionAcordada.required' => 'Debe ingresar la hora acordada para la devolución.',
             'receptorTipo.in' => 'El tipo de receptor debe ser docente o estudiante.',
             'detallesSeleccionadosIds.min' => 'Debe seleccionar al menos un ítem a despachar.',
         ]);
@@ -159,12 +193,17 @@ new #[Layout('layouts.app')] class extends Component
                 Auth::user(),
                 $this->receptorNombre,
                 $this->receptorTipo,
-                $this->detallesSeleccionadosIds
+                $this->detallesSeleccionadosIds,
+                $this->receptorCredencialRut,
+                $this->credencialVerificada,
+                $this->horaEntrega,
+                $this->horaDevolucionAcordada,
+                $this->receptorTipo === 'estudiante'
             );
 
             session()->flash('mensaje', "¡Despacho confirmado exitosamente! Entrega registrada y stock actualizado en kardex.");
             $this->mostrarModalEntrega = false;
-        } catch (EquipoNoDisponibleException|StockInsuficienteException|OperacionDuplicadaException $e) {
+        } catch (EquipoNoDisponibleException|StockInsuficienteException|StockReservadoClasesException|OperacionDuplicadaException $e) {
             session()->flash('error', $e->getMessage());
         } catch (\Exception $e) {
             session()->flash('error', 'Ocurrió un error al procesar la entrega: ' . $e->getMessage());
@@ -239,10 +278,213 @@ new #[Layout('layouts.app')] class extends Component
         }
     }
 
+    public function abrirModalPresencial(): void
+    {
+        $this->resetValidation();
+        $this->errorModalPresencial = null;
+        $this->presencialNombre = '';
+        $this->presencialRut = '';
+        $this->presencialCredencialVerificada = false;
+        $this->presencialHoraDevolucion = now()->addHours(3)->format('H:i');
+        $primerLab = \App\Models\Ubicacion::where('tipo', 'laboratorio')->first() ?? \App\Models\Ubicacion::first();
+        $this->presencialUbicacionId = $primerLab?->id;
+        $this->presencialAsignaturaId = null;
+        $this->presencialObservaciones = '';
+        $this->presencialItems = [];
+        $this->presencialBusqueda = '';
+        $this->mostrarModalPresencial = true;
+    }
+
+    public function agregarItemPresencial(string $tipo, int $id): void
+    {
+        $this->errorModalPresencial = null;
+
+        foreach ($this->presencialItems as $item) {
+            if ($item['tipo'] === $tipo && $item['id'] === $id) {
+                $this->errorModalPresencial = 'Este ítem ya ha sido agregado a la lista del préstamo.';
+                return;
+            }
+        }
+
+        if ($tipo === 'equipo') {
+            $equipo = Equipo::find($id);
+            if (! $equipo) {
+                $this->errorModalPresencial = 'El equipo seleccionado no existe.';
+                return;
+            }
+
+            if ($equipo->estado !== 'disponible') {
+                $this->errorModalPresencial = "El equipo '{$equipo->nombre}' no está disponible (estado actual: {$equipo->estado}).";
+                return;
+            }
+
+            if ($equipo->reservado_clases) {
+                $this->errorModalPresencial = "El equipo '{$equipo->nombre}' está marcado como exclusivo para clases docentes y no puede prestarse a estudiantes.";
+                return;
+            }
+
+            $stockMinimoClasesDefault = (int) ParametroSistema::get('stock_minimo_clases_default', 1);
+            $disponiblesMismoTipo = Equipo::where('nombre', $equipo->nombre)->where('estado', 'disponible')->count();
+
+            if ($disponiblesMismoTipo <= $stockMinimoClasesDefault) {
+                $this->errorModalPresencial = "Stock reservado para clases: Quedan {$disponiblesMismoTipo} unidad(es) de '{$equipo->nombre}', reservadas para talleres docentes (umbral mínimo: {$stockMinimoClasesDefault}). No es posible prestar a estudiantes.";
+                return;
+            }
+
+            $this->presencialItems[] = [
+                'tipo' => 'equipo',
+                'id' => $equipo->id,
+                'nombre' => $equipo->nombre . ' (Serie: ' . $equipo->numero_serie . ')',
+                'codigo' => $equipo->codigo_barras,
+                'cantidad' => 1.0,
+                'es_retornable' => true,
+            ];
+        } elseif ($tipo === 'insumo') {
+            $insumo = Insumo::find($id);
+            if (! $insumo) {
+                $this->errorModalPresencial = 'El insumo seleccionado no existe.';
+                return;
+            }
+
+            if ((float) $insumo->stock_actual <= 0) {
+                $this->errorModalPresencial = "El insumo '{$insumo->nombre}' no tiene existencias físicas disponibles en pañol.";
+                return;
+            }
+
+            if ($insumo->es_retornable) {
+                $stockMinimoClases = (float) ($insumo->stock_minimo_clases ?? 2);
+                if (((float) $insumo->stock_actual - $stockMinimoClases) < 1.0) {
+                    $this->errorModalPresencial = "Stock reservado para clases: El insumo retornable '{$insumo->nombre}' cuenta con {$insumo->stock_actual} unidades, de las cuales {$stockMinimoClases} están reservadas para docencia. No es posible prestar a estudiantes.";
+                    return;
+                }
+            }
+
+            $this->presencialItems[] = [
+                'tipo' => 'insumo',
+                'id' => $insumo->id,
+                'nombre' => $insumo->nombre,
+                'codigo' => $insumo->codigo_barras,
+                'cantidad' => 1.0,
+                'es_retornable' => (bool) $insumo->es_retornable,
+            ];
+        }
+    }
+
+    public function removerItemPresencial(int $indice): void
+    {
+        $this->errorModalPresencial = null;
+        if (isset($this->presencialItems[$indice])) {
+            unset($this->presencialItems[$indice]);
+            $this->presencialItems = array_values($this->presencialItems);
+        }
+    }
+
+    public function confirmarPrestamoPresencial(PrestamoService $prestamoService): void
+    {
+        Gate::authorize('create', Entrega::class);
+        $this->errorModalPresencial = null;
+
+        $this->validate([
+            'presencialNombre' => 'required|string|min:3',
+            'presencialRut' => 'required|string|min:4',
+            'presencialCredencialVerificada' => 'accepted',
+            'presencialHoraDevolucion' => 'required|string',
+            'presencialItems' => 'required|array|min:1',
+            'presencialItems.*.cantidad' => 'required|numeric|min:1',
+        ], [
+            'presencialNombre.required' => 'El nombre del estudiante es obligatorio.',
+            'presencialRut.required' => 'El RUT o credencial institucional del estudiante es obligatorio.',
+            'presencialCredencialVerificada.accepted' => 'Debe confirmar haber verificado y retenido físicamente la credencial del estudiante.',
+            'presencialHoraDevolucion.required' => 'Debe registrar la hora acordada para la devolución.',
+            'presencialItems.min' => 'Debe agregar al menos un equipo o insumo para entregar.',
+        ]);
+
+        try {
+            $prestamoService->registrarPrestamoPresencialEnMeson(
+                Auth::user(),
+                [
+                    'nombre' => $this->presencialNombre,
+                    'rut' => $this->presencialRut,
+                    'credencial_verificada' => $this->presencialCredencialVerificada,
+                    'hora_devolucion_acordada' => $this->presencialHoraDevolucion,
+                    'hora_entrega' => now()->format('H:i:s'),
+                    'ubicacion_destino_id' => $this->presencialUbicacionId,
+                    'asignatura_id' => $this->presencialAsignaturaId,
+                    'observaciones' => $this->presencialObservaciones,
+                ],
+                $this->presencialItems
+            );
+
+            session()->flash('mensaje', "¡Préstamo presencial despachado exitosamente al alumno {$this->presencialNombre}! Material registrado en préstamos activos.");
+            $this->mostrarModalPresencial = false;
+            $this->pestanaActiva = 'activos';
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->errorModalPresencial = collect($e->errors())->flatten()->first();
+        } catch (EquipoNoDisponibleException|StockInsuficienteException|StockReservadoClasesException|OperacionDuplicadaException $e) {
+            $this->errorModalPresencial = $e->getMessage();
+        } catch (\Exception $e) {
+            $this->errorModalPresencial = 'Ocurrió un error al procesar el préstamo presencial: ' . $e->getMessage();
+        }
+    }
+
+    public function catalogoDisponiblePresencial(): array
+    {
+        $busqueda = trim($this->presencialBusqueda);
+
+        $queryEquipos = Equipo::where('estado', 'disponible')->orderBy('nombre');
+        $queryInsumos = Insumo::where('stock_actual', '>', 0)->orderBy('nombre');
+
+        if ($busqueda !== '') {
+            $bLower = mb_strtolower($busqueda);
+            $queryEquipos->where(fn ($q) => $q->whereRaw('LOWER(nombre) LIKE ?', ["%{$bLower}%"])->orWhereRaw('LOWER(codigo_barras) LIKE ?', ["%{$bLower}%"]));
+            $queryInsumos->where(fn ($q) => $q->whereRaw('LOWER(nombre) LIKE ?', ["%{$bLower}%"])->orWhereRaw('LOWER(codigo_barras) LIKE ?', ["%{$bLower}%"]));
+        }
+
+        $equipos = $queryEquipos->take(12)->get();
+        $insumos = $queryInsumos->take(12)->get();
+
+        $stockMinimoClasesDefault = (int) ParametroSistema::get('stock_minimo_clases_default', 1);
+
+        $equipos->transform(function ($eq) use ($stockMinimoClasesDefault) {
+            $disponibles = Equipo::where('nombre', $eq->nombre)->where('estado', 'disponible')->count();
+            $eq->bloqueado_para_estudiante = $eq->reservado_clases || ($disponibles <= $stockMinimoClasesDefault);
+            $eq->motivo_bloqueo = $eq->reservado_clases
+                ? 'Exclusivo Docencia'
+                : ($disponibles <= $stockMinimoClasesDefault ? "Reserva clases ({$disponibles} unid.)" : null);
+
+            return $eq;
+        });
+
+        $insumos->transform(function ($ins) {
+            if ($ins->es_retornable) {
+                $reserva = (float) ($ins->stock_minimo_clases ?? 2);
+                $ins->bloqueado_para_estudiante = ((float) $ins->stock_actual - $reserva) < 1.0;
+                $ins->motivo_bloqueo = $ins->bloqueado_para_estudiante ? "Reserva clases ({$ins->stock_actual}/{$reserva})" : null;
+            } else {
+                $ins->bloqueado_para_estudiante = false;
+                $ins->motivo_bloqueo = null;
+            }
+
+            return $ins;
+        });
+
+        return [
+            'equipos' => $equipos,
+            'insumos' => $insumos,
+        ];
+    }
+
     public function solicitudes()
     {
-        $query = SolicitudMaterial::with(['solicitante', 'revisor', 'detalles.insumo', 'detalles.equipo', 'entregas'])
-            ->orderByDesc('id');
+        $query = SolicitudMaterial::with([
+            'solicitante',
+            'revisor',
+            'detalles.insumo',
+            'detalles.equipo',
+            'entregas',
+            'asignatura',
+            'ubicacionDestino',
+        ])->orderByDesc('id');
 
         if ($this->filtroEstado === 'pendientes') {
             $query->where('estado', 'pendiente');
@@ -297,31 +539,43 @@ new #[Layout('layouts.app')] class extends Component
             <p class="text-sm text-gray-500 mt-1">Revisión de solicitudes anticipadas, control de entregas por ventanilla e inspección física de devoluciones.</p>
         </div>
 
-        <!-- Escáner Rápido de Código de Barras (Hardware 1D / Teclado) -->
-        <div class="w-full md:w-80 bg-white p-2.5 rounded-xl border border-slate-200 shadow-xs">
-            <form wire:submit.prevent="escanearCodigo" class="flex gap-1.5">
-                <div class="relative flex-1">
-                    <input
-                        type="text"
-                        wire:model="escaneoCodigoBarras"
-                        autofocus
-                        placeholder="Escanear código de barras..."
-                        class="w-full text-xs font-mono py-1.5 pl-8 pr-2 border-slate-300 rounded-lg focus:ring-red-600 focus:border-red-600"
-                    />
-                    <svg class="w-4 h-4 text-slate-400 absolute left-2.5 top-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"></path>
-                    </svg>
-                </div>
-                <button type="submit" wire:loading.attr="disabled" class="px-3 py-1.5 bg-red-700 text-white text-xs font-semibold rounded-lg hover:bg-red-800 disabled:opacity-50 transition">
-                    Verificar
-                </button>
-            </form>
-            @if($resultadoEscaneo)
-                <div class="mt-2 text-[11px] p-2 bg-blue-50 text-blue-800 rounded border border-blue-200 flex items-center justify-between">
-                    <span>{{ $resultadoEscaneo }}</span>
-                    <button wire:click="$set('resultadoEscaneo', null)" class="text-blue-600 font-bold ml-2">&times;</button>
-                </div>
-            @endif
+        <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <!-- Botón Préstamo Presencial en Mesón a Estudiantes (Sección 3.4) -->
+            <button
+                wire:click="abrirModalPresencial"
+                class="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-red-700 hover:bg-red-800 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm hover:shadow transition active:scale-95 shrink-0"
+            >
+                <svg class="w-4 h-4 text-white shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
+                <span>Nuevo Préstamo en Mesón</span>
+                <span class="text-white/80 font-normal hidden lg:inline">(Presencial Alumno)</span>
+            </button>
+
+            <!-- Escáner Rápido de Código de Barras (Hardware 1D / Teclado) -->
+            <div class="w-full sm:w-72 bg-white p-2 rounded-xl border border-slate-200 shadow-xs">
+                <form wire:submit.prevent="escanearCodigo" class="flex gap-1.5">
+                    <div class="relative flex-1">
+                        <input
+                            type="text"
+                            wire:model="escaneoCodigoBarras"
+                            autofocus
+                            placeholder="Escanear código..."
+                            class="w-full text-xs font-mono py-1.5 pl-8 pr-2 border-slate-300 rounded-lg focus:ring-red-600 focus:border-red-600"
+                        />
+                        <svg class="w-4 h-4 text-slate-400 absolute left-2.5 top-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"></path>
+                        </svg>
+                    </div>
+                    <button type="submit" wire:loading.attr="disabled" class="px-2.5 py-1.5 bg-red-700 text-white text-xs font-semibold rounded-lg hover:bg-red-800 disabled:opacity-50 transition">
+                        Verificar
+                    </button>
+                </form>
+                @if($resultadoEscaneo)
+                    <div class="mt-2 text-[11px] p-2 bg-blue-50 text-blue-800 rounded border border-blue-200 flex items-center justify-between">
+                        <span>{{ $resultadoEscaneo }}</span>
+                        <button wire:click="$set('resultadoEscaneo', null)" class="text-blue-600 font-bold ml-2">&times;</button>
+                    </div>
+                @endif
+            </div>
         </div>
     </div>
 
@@ -437,6 +691,27 @@ new #[Layout('layouts.app')] class extends Component
                                         Solicitante: <strong class="text-gray-800">{{ $sol->solicitante->name }}</strong> ({{ $sol->solicitante->email }}) &bull;
                                         Fecha Solicitud: {{ $sol->fecha_solicitud->format('d/m/Y H:i') }} &bull;
                                         Requerida: <strong class="text-gray-800">{{ $sol->fecha_requerida->format('d/m/Y') }}</strong>
+                                    </div>
+                                    <!-- Parámetros Clave de Despacho (Sección 3.2.2) -->
+                                    <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                                        @if($sol->hora_requerida)
+                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-200 text-[11px] font-bold">
+                                                <svg class="w-3 h-3 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                                Hora: {{ \Carbon\Carbon::parse($sol->hora_requerida)->format('H:i') }}
+                                            </span>
+                                        @endif
+                                        @if($sol->ubicacionDestino)
+                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-900 border border-blue-200 text-[11px] font-bold">
+                                                <svg class="w-3 h-3 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+                                                Destino: {{ $sol->ubicacionDestino->nombre }}
+                                            </span>
+                                        @endif
+                                        @if($sol->asignatura)
+                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-purple-50 text-purple-900 border border-purple-200 text-[11px] font-bold">
+                                                <svg class="w-3 h-3 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+                                                Taller: {{ $sol->asignatura->codigo }} - {{ $sol->asignatura->nombre }}
+                                            </span>
+                                        @endif
                                     </div>
                                 </div>
 
@@ -719,7 +994,7 @@ new #[Layout('layouts.app')] class extends Component
                         <div>
                             <label class="block font-semibold text-gray-700 mb-1">Tipo de Receptor <span class="text-red-500">*</span></label>
                             <select
-                                wire:model="receptorTipo"
+                                wire:model.live="receptorTipo"
                                 class="w-full text-xs border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500"
                             >
                                 <option value="docente">Docente Institucional</option>
@@ -730,6 +1005,49 @@ new #[Layout('layouts.app')] class extends Component
                             @enderror
                         </div>
                     </div>
+
+                    @if($receptorTipo === 'estudiante')
+                        <div class="p-3 bg-red-50/70 border border-red-200 rounded-lg space-y-3">
+                            <div class="font-bold text-red-900 text-xs flex items-center gap-1.5">
+                                <svg class="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2"/></svg>
+                                Validación de Credencial y Compromiso Horario del Estudiante (CP-26)
+                            </div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block font-semibold text-gray-700 mb-1">RUT o N° Credencial del Estudiante <span class="text-red-500">*</span></label>
+                                    <input
+                                        type="text"
+                                        wire:model="receptorCredencialRut"
+                                        placeholder="Ej. 20.123.456-7"
+                                        class="w-full text-xs border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500"
+                                    />
+                                    @error('receptorCredencialRut') <p class="text-red-600 mt-1">{{ $message }}</p> @enderror
+                                </div>
+                                <div>
+                                    <label class="block font-semibold text-gray-700 mb-1">Hora Límite de Devolución Acordada <span class="text-red-500">*</span></label>
+                                    <input
+                                        type="time"
+                                        wire:model="horaDevolucionAcordada"
+                                        class="w-full text-xs border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500"
+                                    />
+                                    @error('horaDevolucionAcordada') <p class="text-red-600 mt-1">{{ $message }}</p> @enderror
+                                </div>
+                            </div>
+                            <div>
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        wire:model="credencialVerificada"
+                                        class="rounded text-red-600 focus:ring-red-600"
+                                    />
+                                    <span class="text-xs font-semibold text-gray-800">
+                                        Confirmo haber retenido / verificado físicamente la credencial institucional del estudiante en mesón <span class="text-red-500">*</span>
+                                    </span>
+                                </label>
+                                @error('credencialVerificada') <p class="text-red-600 mt-1">{{ $message }}</p> @enderror
+                            </div>
+                        </div>
+                    @endif
 
                     <!-- Selección de Ítems a Entregar -->
                     <div>
@@ -930,6 +1248,286 @@ new #[Layout('layouts.app')] class extends Component
                 <div class="px-5 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-2">
                     <button wire:click="$set('mostrarModalRechazo', false)" class="px-3 py-1.5 text-xs text-gray-600">Cancelar</button>
                     <button wire:click="confirmarRechazo" class="px-4 py-1.5 bg-red-600 text-white font-bold rounded-lg text-xs hover:bg-red-700">Confirmar Rechazo</button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    <!-- MODAL: Nuevo Préstamo Presencial en Mesón a Estudiantes (CP-25, CP-26, Sección 3.4) -->
+    @if($mostrarModalPresencial)
+        <div class="fixed inset-0 z-50 overflow-y-auto bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+            <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                <div class="px-5 py-4 bg-red-700 text-white flex items-center justify-between">
+                    <h3 class="text-base font-bold flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
+                        <span>Atención de Ventanilla: Préstamo Presencial a Estudiante</span>
+                    </h3>
+                    <button wire:click="$set('mostrarModalPresencial', false)" class="text-white/80 hover:text-white">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+
+                <div class="p-5 space-y-5 max-h-[80vh] overflow-y-auto text-xs">
+                    <!-- Mensaje de Error / Bloqueo en el Modal si ocurre una excepción o validación fallida -->
+                    @if($errorModalPresencial)
+                        <div class="p-3 bg-red-50 border-l-4 border-red-600 rounded-r-xl text-red-900 flex items-start justify-between gap-3 shadow-xs animate-in fade-in duration-150">
+                            <div class="flex items-start gap-2.5">
+                                <svg class="w-5 h-5 text-red-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                                <div>
+                                    <p class="font-bold text-red-800 text-xs">Atención (Operación no permitida):</p>
+                                    <p class="text-[11px] text-red-700 mt-0.5 leading-relaxed font-medium">{{ $errorModalPresencial }}</p>
+                                </div>
+                            </div>
+                            <button type="button" wire:click="$set('errorModalPresencial', null)" class="text-red-400 hover:text-red-700 font-bold p-1">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                            </button>
+                        </div>
+                    @endif
+
+                    <!-- Instrucción / Aviso normativo -->
+                    <div class="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 flex items-start gap-2.5">
+                        <svg class="w-5 h-5 text-amber-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        <div class="space-y-0.5">
+                            <span class="font-bold">Regla de Negocio (Estudiantes sin cuenta):</span>
+                            <p class="text-[11px] text-amber-800">
+                                Los alumnos retiran materiales presencialmente en el mesón. Es obligatorio exigir y retener su credencial institucional física, registrar su RUT y pactar una hora límite de devolución. El sistema bloqueará la entrega si el stock disponible invade la reserva mínima para clases docentes.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- SECCIÓN 1: Datos del Estudiante Receptor -->
+                    <div class="border border-slate-200 rounded-xl p-4 bg-slate-50/60 space-y-3">
+                        <h4 class="font-bold text-gray-800 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                            <span class="w-2 h-2 rounded-full bg-red-600"></span>
+                            1. Identificación del Estudiante y Retención de Credencial
+                        </h4>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label class="block font-semibold text-gray-700 mb-1">Nombre Completo del Estudiante <span class="text-red-500">*</span></label>
+                                <input
+                                    type="text"
+                                    wire:model="presencialNombre"
+                                    placeholder="Ej: Matías Morales Araya"
+                                    class="w-full text-xs border-slate-300 rounded-lg focus:ring-red-600 focus:border-red-600"
+                                />
+                                @error('presencialNombre') <span class="text-[11px] text-red-600 font-semibold">{{ $message }}</span> @enderror
+                            </div>
+
+                            <div>
+                                <label class="block font-semibold text-gray-700 mb-1">RUT / Credencial del Estudiante <span class="text-red-500">*</span></label>
+                                <input
+                                    type="text"
+                                    wire:model="presencialRut"
+                                    placeholder="Ej: 20.345.678-9"
+                                    class="w-full text-xs font-mono border-slate-300 rounded-lg focus:ring-red-600 focus:border-red-600"
+                                />
+                                @error('presencialRut') <span class="text-[11px] text-red-600 font-semibold">{{ $message }}</span> @enderror
+                            </div>
+                        </div>
+
+                        <!-- Checkbox Obligatorio de Verificación de Credencial Física -->
+                        <div class="p-3 bg-red-50 border border-red-200 rounded-lg">
+                            <label class="flex items-start gap-2.5 cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    wire:model="presencialCredencialVerificada"
+                                    class="mt-0.5 rounded border-red-400 text-red-600 focus:ring-red-500"
+                                />
+                                <span class="font-bold text-red-900 text-xs leading-snug">
+                                    Confirmo haber verificado y retenido físicamente la credencial institucional del estudiante en el mesón de pañol. <span class="text-red-600">*</span>
+                                </span>
+                            </label>
+                            @error('presencialCredencialVerificada') <p class="text-[11px] text-red-600 mt-1 font-semibold">{{ $message }}</p> @enderror
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label class="block font-semibold text-gray-700 mb-1">Hora Acordada de Devolución <span class="text-red-500">*</span></label>
+                                <input
+                                    type="time"
+                                    wire:model="presencialHoraDevolucion"
+                                    class="w-full text-xs border-slate-300 rounded-lg focus:ring-red-600 focus:border-red-600 font-mono"
+                                />
+                                @error('presencialHoraDevolucion') <span class="text-[11px] text-red-600 font-semibold">{{ $message }}</span> @enderror
+                            </div>
+
+                            <div>
+                                <label class="block font-semibold text-gray-700 mb-1">Laboratorio o Taller de Uso</label>
+                                <select
+                                    wire:model="presencialUbicacionId"
+                                    class="w-full text-xs border-slate-300 rounded-lg focus:ring-red-600 focus:border-red-600"
+                                >
+                                    @foreach(\App\Models\Ubicacion::whereIn('tipo', ['laboratorio', 'panol'])->orWhereNull('padre_id')->orderBy('nombre')->get() as $u)
+                                        <option value="{{ $u->id }}">{{ $u->nombre }} ({{ ucfirst($u->tipo) }})</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- SECCIÓN 2: Selección y Escaneo de Materiales -->
+                    <div class="border border-slate-200 rounded-xl p-4 bg-slate-50/60 space-y-3">
+                        <h4 class="font-bold text-gray-800 text-xs uppercase tracking-wider flex items-center justify-between">
+                            <span class="flex items-center gap-1.5">
+                                <span class="w-2 h-2 rounded-full bg-red-600"></span>
+                                2. Materiales a Entregar al Estudiante
+                            </span>
+                            <span class="text-[11px] font-semibold text-slate-500">{{ count($presencialItems) }} ítem(s) agregado(s)</span>
+                        </h4>
+
+                        <!-- Buscador / Catálogo rápido -->
+                        <div class="relative">
+                            <input
+                                type="text"
+                                wire:model.live.debounce.250ms="presencialBusqueda"
+                                placeholder="Buscar equipo o insumo para agregar (nombre o código de barras)..."
+                                class="w-full text-xs pl-8 pr-3 py-1.5 border-slate-300 rounded-lg focus:ring-red-600 focus:border-red-600"
+                            />
+                            <svg class="w-4 h-4 text-slate-400 absolute left-2.5 top-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                        </div>
+
+                        <!-- Resultados sugeridos -->
+                        @php $cat = $this->catalogoDisponiblePresencial(); @endphp
+                        @if($cat['equipos']->isNotEmpty() || $cat['insumos']->isNotEmpty())
+                            <div class="border border-slate-200 rounded-lg bg-white p-2 max-h-40 overflow-y-auto divide-y divide-slate-100 shadow-2xs">
+                                @foreach($cat['equipos'] as $eq)
+                                    <div class="py-1.5 px-2 flex items-center justify-between hover:bg-slate-50 text-xs">
+                                        <div class="flex-1 min-w-0 pr-2">
+                                            <span class="font-semibold text-gray-800">{{ $eq->nombre }}</span>
+                                            <span class="text-slate-400 text-[10px] ml-1">({{ $eq->codigo_barras }} · Serie: {{ $eq->numero_serie }})</span>
+                                            @if($eq->bloqueado_para_estudiante)
+                                                <span class="text-[9px] bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.5 rounded font-bold ml-1">
+                                                    ⚠️ {{ $eq->motivo_bloqueo }}
+                                                </span>
+                                            @else
+                                                <span class="text-[9px] bg-emerald-100 text-emerald-800 border border-emerald-300 px-1.5 py-0.5 rounded font-semibold ml-1">
+                                                    Disponible
+                                                </span>
+                                            @endif
+                                        </div>
+                                        <button
+                                            type="button"
+                                            wire:click="agregarItemPresencial('equipo', {{ $eq->id }})"
+                                            class="px-2 py-0.5 {{ $eq->bloqueado_para_estudiante ? 'bg-slate-100 hover:bg-slate-200 text-slate-500' : 'bg-red-600 hover:bg-red-700 text-white' }} font-bold rounded text-[11px] transition shrink-0"
+                                        >
+                                            + Agregar
+                                        </button>
+                                    </div>
+                                @endforeach
+
+                                @foreach($cat['insumos'] as $ins)
+                                    <div class="py-1.5 px-2 flex items-center justify-between hover:bg-slate-50 text-xs">
+                                        <div class="flex-1 min-w-0 pr-2">
+                                            <span class="font-semibold text-gray-800">{{ $ins->nombre }}</span>
+                                            <span class="text-slate-400 text-[10px] ml-1">({{ $ins->codigo_barras }} · Stock: {{ $ins->stock_actual }} {{ $ins->unidad }})</span>
+                                            <span class="text-[9px] px-1 py-0.5 rounded {{ $ins->es_retornable ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-700' }}">
+                                                {{ $ins->es_retornable ? 'Retornable' : 'Consumible' }}
+                                            </span>
+                                            @if($ins->bloqueado_para_estudiante)
+                                                <span class="text-[9px] bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.5 rounded font-bold ml-1">
+                                                    ⚠️ {{ $ins->motivo_bloqueo }}
+                                                </span>
+                                            @endif
+                                        </div>
+                                        <button
+                                            type="button"
+                                            wire:click="agregarItemPresencial('insumo', {{ $ins->id }})"
+                                            class="px-2 py-0.5 {{ $ins->bloqueado_para_estudiante ? 'bg-slate-100 hover:bg-slate-200 text-slate-500' : 'bg-red-600 hover:bg-red-700 text-white' }} font-bold rounded text-[11px] transition shrink-0"
+                                        >
+                                            + Agregar
+                                        </button>
+                                    </div>
+                                @endforeach
+                            </div>
+                        @endif
+
+                        <!-- Lista de Ítems en el Mesón -->
+                        @if(empty($presencialItems))
+                            <div class="p-3 border-2 border-dashed border-slate-300 rounded-lg text-center text-slate-400 text-xs">
+                                No hay materiales agregados. Busque o escanee arriba y haga clic en "+ Agregar".
+                            </div>
+                        @else
+                            <div class="border border-slate-200 rounded-lg bg-white overflow-hidden shadow-2xs">
+                                <table class="w-full text-xs text-left">
+                                    <thead class="bg-slate-50 text-slate-600 uppercase tracking-wider text-[10px]">
+                                        <tr>
+                                            <th class="py-2 px-3">Material</th>
+                                            <th class="py-2 px-3">Código</th>
+                                            <th class="py-2 px-3 w-20">Cantidad</th>
+                                            <th class="py-2 px-3 text-center w-12">Acción</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-slate-100">
+                                        @foreach($presencialItems as $idx => $it)
+                                            <tr>
+                                                <td class="py-2 px-3 font-semibold text-gray-800">
+                                                    {{ $it['nombre'] }}
+                                                    <span class="text-[10px] block text-slate-400">
+                                                        {{ $it['tipo'] === 'equipo' ? 'Equipo retornable' : ($it['es_retornable'] ? 'Insumo retornable' : 'Insumo consumible') }}
+                                                    </span>
+                                                </td>
+                                                <td class="py-2 px-3 font-mono text-slate-500">{{ $it['codigo'] }}</td>
+                                                <td class="py-2 px-3">
+                                                    @if($it['tipo'] === 'insumo')
+                                                        <input
+                                                            type="number"
+                                                            step="1"
+                                                            min="1"
+                                                            wire:model="presencialItems.{{ $idx }}.cantidad"
+                                                            class="w-16 text-xs py-1 px-1.5 border-slate-300 rounded text-center"
+                                                        />
+                                                    @else
+                                                        <span class="font-bold text-slate-700">1</span>
+                                                    @endif
+                                                </td>
+                                                <td class="py-2 px-3 text-center">
+                                                    <button
+                                                        type="button"
+                                                        wire:click="removerItemPresencial({{ $idx }})"
+                                                        class="text-red-500 hover:text-red-700 font-bold p-1 rounded hover:bg-red-50 transition"
+                                                    >
+                                                        &times;
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        @endif
+                        @error('presencialItems') <p class="text-[11px] text-red-600 font-semibold">{{ $message }}</p> @enderror
+                    </div>
+
+                    <!-- Observaciones opcionales -->
+                    <div>
+                        <label class="block font-semibold text-gray-700 mb-1">Observaciones de Entrega (Opcional)</label>
+                        <textarea
+                            wire:model="presencialObservaciones"
+                            rows="2"
+                            placeholder="Ej: Material prestado para taller práctico de la tarde..."
+                            class="w-full text-xs border-slate-300 rounded-lg focus:ring-red-600 focus:border-red-600"
+                        ></textarea>
+                    </div>
+                </div>
+
+                <!-- Footer Acciones -->
+                <div class="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2.5">
+                    <button
+                        type="button"
+                        wire:click="$set('mostrarModalPresencial', false)"
+                        class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200 rounded-lg transition"
+                    >
+                        Cancelar
+                    </button>
+                    <button
+                        type="button"
+                        wire:click="confirmarPrestamoPresencial"
+                        class="px-5 py-2 text-xs font-bold text-white bg-red-700 hover:bg-red-800 disabled:opacity-50 rounded-lg shadow-sm hover:shadow transition flex items-center gap-1.5"
+                    >
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        <span>Confirmar y Despachar Materiales</span>
+                    </button>
                 </div>
             </div>
         </div>

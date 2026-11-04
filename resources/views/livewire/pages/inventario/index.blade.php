@@ -76,6 +76,14 @@ new #[Layout('layouts.app')] class extends Component
         return Insumo::whereRaw('stock_actual <= stock_minimo')->count();
     }
 
+    public function insumosCriticos()
+    {
+        return Insumo::with(['ubicacion.carrera'])
+            ->whereRaw('stock_actual <= stock_minimo')
+            ->orderBy('stock_actual')
+            ->get();
+    }
+
     public function abrirModalCrear(): void
     {
         Gate::authorize('create', Insumo::class);
@@ -164,11 +172,11 @@ new #[Layout('layouts.app')] class extends Component
 
 <div class="py-6">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
-        <!-- Encabezado -->
+        <!-- Encabezado Renombrado (Sección 3.3.1) -->
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-6 rounded-lg shadow-sm border border-gray-100">
             <div>
-                <h1 class="text-2xl font-bold text-gray-900">Catálogo de Insumos e Inventario</h1>
-                <p class="text-sm text-gray-500 mt-1">Control granular de ubicaciones (mueble, estante, cajón), transacciones ACID y monitor de stock crítico (KPI-04).</p>
+                <h1 class="text-2xl font-bold text-gray-900">Inventario y Mantención de Equipo</h1>
+                <p class="text-sm text-gray-500 mt-1">Control granular de ubicaciones (mueble, estante, cajón), transacciones ACID y monitor de stock crítico con cotización rápida (KPI-04 / CP-24).</p>
             </div>
             @if(Auth::user()->rol !== 'docente')
                 <button wire:click="abrirModalCrear" class="inline-flex items-center px-4 py-2 bg-red-700 hover:bg-red-800 text-white font-medium text-sm rounded-md shadow-sm transition">
@@ -184,20 +192,73 @@ new #[Layout('layouts.app')] class extends Component
             </div>
         @endif
 
-        <!-- Monitor reactivo de Stock Crítico (KPI-04 / CP-14) -->
-        @php $criticosCount = $this->totalCriticos(); @endphp
+        <!-- Monitor reactivo y Dashboard de Stock Crítico con Acción Cotizar (KPI-04, CP-24, Sección 3.3.2) -->
+        @php
+            $criticos = $this->insumosCriticos();
+            $criticosCount = $criticos->count();
+        @endphp
         @if($criticosCount > 0)
-            <div class="p-4 bg-red-50 border-l-4 border-red-600 text-red-900 rounded-r-md flex items-center justify-between">
-                <div class="flex items-center gap-3">
-                    <svg class="w-6 h-6 text-red-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-                    <div>
-                        <div class="font-bold text-sm">Alerta Reactiva de Stock Crítico (KPI-04)</div>
-                        <div class="text-xs text-red-700">Existen {{ $criticosCount }} insumo(s) con existencias iguales o inferiores al umbral mínimo establecido.</div>
+            <div class="bg-red-50/90 border border-red-200 rounded-xl p-5 shadow-xs space-y-4">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-red-200/80 pb-3">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-lg bg-red-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                        </div>
+                        <div>
+                            <div class="font-extrabold text-base text-red-950">Alertas de Stock Crítico (KPI-04 / CP-24)</div>
+                            <div class="text-xs text-red-800">
+                                Existen <strong>{{ $criticosCount }}</strong> insumo(s) con existencias iguales o inferiores al umbral mínimo operativo.
+                            </div>
+                        </div>
                     </div>
+                    <button wire:click="$toggle('soloCriticos')" class="px-3.5 py-1.5 text-xs font-bold rounded-lg transition {{ $soloCriticos ? 'bg-red-700 text-white shadow-xs' : 'bg-red-200 text-red-900 hover:bg-red-300' }}">
+                        {{ $soloCriticos ? 'Ver Todo el Catálogo' : 'Filtrar Solo Críticos en Tabla' }}
+                    </button>
                 </div>
-                <button wire:click="$toggle('soloCriticos')" class="px-3 py-1.5 text-xs font-semibold rounded {{ $soloCriticos ? 'bg-red-700 text-white' : 'bg-red-200 text-red-900 hover:bg-red-300' }}">
-                    {{ $soloCriticos ? 'Ver Todos los Insumos' : 'Filtrar Solo Críticos' }}
-                </button>
+
+                <!-- Tarjetas de Ítems Críticos con Botón "Cotizar" Directo -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    @foreach($criticos as $critico)
+                        @php
+                            $sugerido = max(1, (int)(($critico->stock_minimo * 2) - $critico->stock_actual));
+                        @endphp
+                        <div class="bg-white rounded-lg border border-red-200 p-3.5 flex flex-col justify-between shadow-2xs">
+                            <div class="space-y-1">
+                                <div class="flex items-start justify-between gap-2">
+                                    <span class="font-mono text-[11px] font-bold text-slate-500">{{ $critico->codigo_barras }}</span>
+                                    <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-red-100 text-red-800">
+                                        Crítico
+                                    </span>
+                                </div>
+                                <h4 class="font-bold text-slate-900 text-xs sm:text-sm leading-tight">{{ $critico->nombre }}</h4>
+                                <div class="text-[11px] text-slate-500">
+                                    {{ $critico->ubicacion?->nombre ?? 'Sin ubicación' }}
+                                    @if($critico->ubicacion?->carrera)
+                                        &bull; {{ $critico->ubicacion->carrera->codigo }}
+                                    @endif
+                                </div>
+                                <div class="flex items-center gap-2 pt-1 text-xs">
+                                    <span class="text-red-700 font-extrabold">Stock: {{ (float)$critico->stock_actual }} {{ $critico->unidad }}</span>
+                                    <span class="text-slate-400">/ Mín: {{ (float)$critico->stock_minimo }}</span>
+                                </div>
+                            </div>
+
+                            <div class="pt-3 mt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                                <span class="text-[11px] text-slate-500">
+                                    Sugerido: <strong>{{ $sugerido }} {{ $critico->unidad }}</strong>
+                                </span>
+                                <a
+                                    href="{{ route('panol.cotizaciones', ['insumo_id' => $critico->id]) }}"
+                                    class="inline-flex items-center gap-1 px-3 py-1.5 bg-red-700 hover:bg-red-800 text-white rounded-md text-xs font-bold shadow-2xs transition"
+                                    wire:navigate
+                                >
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                                    Cotizar
+                                </a>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
             </div>
         @endif
 

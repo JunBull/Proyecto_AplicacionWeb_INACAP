@@ -42,13 +42,26 @@ new #[Layout('layouts.app')] class extends Component
     public bool $excepcionAutorizada = false;
     public string $justificacionExcepcion = '';
 
-    public function mount(): void
+    public function mount(?int $insumo_id = null): void
     {
         Gate::authorize('viewAny', Cotizacion::class);
         $this->fechaRecepcion = date('Y-m-d');
         $carrera = Carrera::first();
         if ($carrera) {
             $this->carrera_id = $carrera->id;
+        }
+
+        $insumoIdParam = $insumo_id ?? request()->query('insumo_id');
+        if ($insumoIdParam) {
+            $insumo = \App\Models\Insumo::with('ubicacion.carrera')->find($insumoIdParam);
+            if ($insumo) {
+                if ($insumo->ubicacion && $insumo->ubicacion->carrera_id) {
+                    $this->carrera_id = $insumo->ubicacion->carrera_id;
+                }
+                $sugerida = max(1, (int)(($insumo->stock_minimo * 2) - $insumo->stock_actual));
+                $this->descripcion = "Reposición de stock crítico: Insumo {$insumo->nombre} (Código: {$insumo->codigo_barras}). Cantidad sugerida: {$sugerida} {$insumo->unidad}(s).";
+                $this->mostrarModalSolicitud = true;
+            }
         }
     }
 

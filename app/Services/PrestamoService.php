@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Exceptions\EquipoNoDisponibleException;
 use App\Exceptions\OperacionDuplicadaException;
 use App\Exceptions\StockInsuficienteException;
+use App\Exceptions\StockReservadoClasesException;
 use App\Models\DetalleSolicitud;
 use App\Models\Devolucion;
 use App\Models\Entrega;
@@ -12,7 +13,9 @@ use App\Models\Equipo;
 use App\Models\Falla;
 use App\Models\Insumo;
 use App\Models\MovimientoInventario;
+use App\Models\ParametroSistema;
 use App\Models\SolicitudMaterial;
+use App\Models\Ubicacion;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
@@ -36,17 +39,17 @@ class PrestamoService
         $equiposQuery = Equipo::with('ubicacion')->where('estado', 'disponible');
 
         if ($busqueda && trim($busqueda) !== '') {
-            $term = '%' . trim($busqueda) . '%';
+            $term = '%'.trim($busqueda).'%';
             $insumosQuery->where(function ($q) use ($term) {
                 $q->where('nombre', 'LIKE', $term)
-                  ->orWhere('codigo_barras', 'LIKE', $term);
+                    ->orWhere('codigo_barras', 'LIKE', $term);
             });
 
             $equiposQuery->where(function ($q) use ($term) {
                 $q->where('nombre', 'LIKE', $term)
-                  ->orWhere('codigo_barras', 'LIKE', $term)
-                  ->orWhere('marca', 'LIKE', $term)
-                  ->orWhere('modelo', 'LIKE', $term);
+                    ->orWhere('codigo_barras', 'LIKE', $term)
+                    ->orWhere('marca', 'LIKE', $term)
+                    ->orWhere('modelo', 'LIKE', $term);
             });
         }
 
@@ -94,8 +97,11 @@ class PrestamoService
             $solicitud = SolicitudMaterial::create([
                 'solicitante_id' => $solicitante->id,
                 'revisada_por' => null,
+                'asignatura_id' => ! empty($datos['asignatura_id']) ? (int) $datos['asignatura_id'] : null,
+                'ubicacion_destino_id' => ! empty($datos['ubicacion_destino_id']) ? (int) $datos['ubicacion_destino_id'] : null,
                 'fecha_solicitud' => now(),
                 'fecha_requerida' => $fechaReq->toDateString(),
+                'hora_requerida' => ! empty($datos['hora_requerida']) ? (string) $datos['hora_requerida'] : null,
                 'estado' => 'pendiente',
                 'observaciones' => isset($datos['observaciones']) ? trim($datos['observaciones']) : null,
             ]);
@@ -204,15 +210,20 @@ class PrestamoService
      * Confirma la entrega física de materiales en el mesón de pañol (CP-20, CP-22, PI-02, PI-03).
      * Aplica SELECT FOR UPDATE pesimista y actualización diferenciada (consumible vs retornable).
      *
-     * @param 'docente'|'estudiante' $receptorTipo
-     * @param array<int, int>|null $detallesAEntregar IDs de detalle_solicitud a despachar (si null, se entregan todos los pendientes)
+     * @param  'docente'|'estudiante'  $receptorTipo
+     * @param  array<int, int>|null  $detallesAEntregar  IDs de detalle_solicitud a despachar (si null, se entregan todos los pendientes)
      */
     public function entregarMateriales(
         SolicitudMaterial $solicitud,
         User $entregador,
         string $receptorNombre,
         string $receptorTipo,
-        ?array $detallesAEntregar = null
+        ?array $detallesAEntregar = null,
+        ?string $receptorCredencialRut = null,
+        bool $credencialVerificada = false,
+        ?string $horaEntrega = null,
+        ?string $horaDevolucionAcordada = null,
+        bool $exigirValidacionCredencial = false
     ): Entrega {
         $nombreLimpio = trim($receptorNombre);
         if ($nombreLimpio === '') {
@@ -227,7 +238,39 @@ class PrestamoService
             ]);
         }
 
-        return DB::transaction(function () use ($solicitud, $entregador, $nombreLimpio, $receptorTipo, $detallesAEntregar) {
+        if ($receptorTipo === 'estudiante' && $exigirValidacionCredencial) {
+            $rutLimpio = trim((string) $receptorCredencialRut);
+            if ($rutLimpio === '') {
+                throw ValidationException::withMessages([
+                    'receptor_credencial_rut' => 'El RUT o número de credencial institucional del estudiante es obligatorio.',
+                ]);
+            }
+
+            if (! $credencialVerificada) {
+                throw ValidationException::withMessages([
+                    'credencial_verificada' => 'Debe validar y verificar físicamente la credencial del estudiante.',
+                ]);
+            }
+
+            if (empty($horaDevolucionAcordada) || trim((string) $horaDevolucionAcordada) === '') {
+                throw ValidationException::withMessages([
+                    'hora_devolucion_acordada' => 'Debe registrar la hora acordada para la devolución del material.',
+                ]);
+            }
+        }
+
+        return DB::transaction(function () use (
+            $solicitud,
+            $entregador,
+            $nombreLimpio,
+            $receptorTipo,
+            $detallesAEntregar,
+            $receptorCredencialRut,
+            $credencialVerificada,
+            $horaEntrega,
+            $horaDevolucionAcordada,
+            $exigirValidacionCredencial
+        ) {
             // Bloqueo pesimista de la cabecera de la solicitud
             /** @var SolicitudMaterial $solicitudBloqueada */
             $solicitudBloqueada = SolicitudMaterial::where('id', $solicitud->id)->lockForUpdate()->firstOrFail();
@@ -257,12 +300,19 @@ class PrestamoService
                 throw new OperacionDuplicadaException('Todos los ítems seleccionados ya han sido entregados con anterioridad (operación duplicada detectada).');
             }
 
+            // Identificar si corresponde a un préstamo directo a estudiante (Sección 3.4)
+            $esPrestamoEstudiante = ($receptorTipo === 'estudiante') && ($exigirValidacionCredencial || $solicitudBloqueada->solicitante?->rol !== 'docente');
+
             // Registro en la tabla 'entregas'
             $entrega = Entrega::create([
                 'solicitud_id' => $solicitudBloqueada->id,
                 'entregado_por' => $entregador->id,
                 'receptor_nombre' => $nombreLimpio,
                 'receptor_tipo' => $receptorTipo,
+                'receptor_credencial_rut' => $receptorCredencialRut ? trim($receptorCredencialRut) : null,
+                'credencial_verificada' => (bool) $credencialVerificada,
+                'hora_entrega' => $horaEntrega ?: now()->format('H:i:s'),
+                'hora_devolucion_acordada' => $horaDevolucionAcordada ?: null,
                 'fecha_entrega' => now(),
             ]);
 
@@ -276,6 +326,28 @@ class PrestamoService
                         throw new EquipoNoDisponibleException(
                             "El equipo '{$equipo->nombre}' (código: {$equipo->codigo_barras}) ya no se encuentra disponible (estado actual: {$equipo->estado})."
                         );
+                    }
+
+                    // Validación de reserva de clases para préstamos a estudiantes (CP-25, Sección 3.4)
+                    if ($esPrestamoEstudiante) {
+                        if ($equipo->reservado_clases) {
+                            throw new StockReservadoClasesException(
+                                "El equipo '{$equipo->nombre}' (código: {$equipo->codigo_barras}) está marcado como reservado exclusivamente para clases docentes."
+                            );
+                        }
+
+                        $stockMinimoClasesDefault = (int) ParametroSistema::get('stock_minimo_clases_default', 1);
+                        $equiposDisponiblesMismoTipo = Equipo::where('nombre', $equipo->nombre)
+                            ->where('estado', 'disponible')
+                            ->lockForUpdate()
+                            ->get(['id'])
+                            ->count();
+
+                        if (($equiposDisponiblesMismoTipo - 1) < $stockMinimoClasesDefault && $equiposDisponiblesMismoTipo <= $stockMinimoClasesDefault) {
+                            throw new StockReservadoClasesException(
+                                "Stock reservado para clases: Quedan {$equiposDisponiblesMismoTipo} unidad(es) del equipo '{$equipo->nombre}', reservadas para el dictado de talleres docentes (umbral mínimo: {$stockMinimoClasesDefault}). Operación rechazada."
+                            );
+                        }
                     }
 
                     // Actualizar estado del activo a prestado
@@ -296,6 +368,16 @@ class PrestamoService
                         throw new StockInsuficienteException(
                             "Stock insuficiente para el insumo '{$insumo->nombre}'. Existencias físicas: {$stockDisponible}, cantidad requerida: {$cantidadADespachar}."
                         );
+                    }
+
+                    // Validación de reserva de clases para insumos retornables a estudiantes (CP-25, Sección 3.4)
+                    if ($esPrestamoEstudiante && $insumo->es_retornable) {
+                        $stockMinimoClases = (float) ($insumo->stock_minimo_clases ?? 2);
+                        if (($stockDisponible - $stockMinimoClases) < $cantidadADespachar) {
+                            throw new StockReservadoClasesException(
+                                "Stock reservado para clases: El insumo retornable '{$insumo->nombre}' cuenta con {$stockDisponible} unidades, de las cuales {$stockMinimoClases} están reservadas para docencia. No es posible prestar {$cantidadADespachar} unidad(es) a estudiantes."
+                            );
+                        }
                     }
 
                     // Rebaja directa de stock en inventario
@@ -346,6 +428,154 @@ class PrestamoService
 
             return $entrega->fresh(['solicitud.detalles.insumo', 'solicitud.detalles.equipo', 'entregador']);
         });
+    }
+
+    /**
+     * Registra un préstamo presencial directo en ventanilla a un estudiante (flujo sin solicitud previa).
+     * Ejecuta de forma atómica la creación de la cabecera, detalles y entrega física con validación
+     * obligatoria de credencial física y piso mínimo de clases (lockForUpdate).
+     *
+     * @param array{
+     *     nombre: string,
+     *     rut: string,
+     *     credencial_verificada: bool,
+     *     hora_devolucion_acordada: string,
+     *     hora_entrega?: ?string,
+     *     ubicacion_destino_id?: ?int,
+     *     asignatura_id?: ?int,
+     *     observaciones?: ?string
+     * } $datosEstudiante
+     * @param array<int, array{
+     *     tipo: 'equipo'|'insumo',
+     *     id: int,
+     *     cantidad?: float|int
+     * }> $items
+     */
+    public function registrarPrestamoPresencialEnMeson(
+        User $panolero,
+        array $datosEstudiante,
+        array $items
+    ): Entrega {
+        $nombre = trim($datosEstudiante['nombre'] ?? '');
+        if ($nombre === '') {
+            throw ValidationException::withMessages([
+                'receptor_nombre' => 'El nombre completo del estudiante es obligatorio.',
+            ]);
+        }
+
+        $rut = trim($datosEstudiante['rut'] ?? '');
+        if ($rut === '') {
+            throw ValidationException::withMessages([
+                'receptor_credencial_rut' => 'El RUT o credencial institucional del estudiante es obligatorio.',
+            ]);
+        }
+
+        $credencialVerificada = (bool) ($datosEstudiante['credencial_verificada'] ?? false);
+        if (! $credencialVerificada) {
+            throw ValidationException::withMessages([
+                'credencial_verificada' => 'Debe validar y verificar físicamente la credencial del estudiante.',
+            ]);
+        }
+
+        $horaDevolucionAcordada = trim($datosEstudiante['hora_devolucion_acordada'] ?? '');
+        if ($horaDevolucionAcordada === '') {
+            throw ValidationException::withMessages([
+                'hora_devolucion_acordada' => 'Debe registrar la hora acordada para la devolución del material.',
+            ]);
+        }
+
+        if (empty($items)) {
+            throw ValidationException::withMessages([
+                'items' => 'Debe seleccionar al menos un equipo o insumo para entregar.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($panolero, $datosEstudiante, $items, $nombre, $rut, $horaDevolucionAcordada) {
+            $ubicacion = ! empty($datosEstudiante['ubicacion_destino_id'])
+                ? Ubicacion::find($datosEstudiante['ubicacion_destino_id'])
+                : (Ubicacion::where('tipo', 'laboratorio')->first() ?? Ubicacion::first());
+            $ubicacionDestinoId = $ubicacion?->id;
+
+            $horaEntrega = ! empty($datosEstudiante['hora_entrega'])
+                ? trim($datosEstudiante['hora_entrega'])
+                : now()->format('H:i:s');
+
+            $observaciones = ! empty($datosEstudiante['observaciones'])
+                ? trim($datosEstudiante['observaciones'])
+                : "Préstamo presencial en mesón a estudiante: {$nombre} (RUT: {$rut})";
+
+            // 1. Crear cabecera de solicitud aprobada en el acto
+            $solicitud = SolicitudMaterial::create([
+                'solicitante_id' => $panolero->id,
+                'estado' => 'aprobada',
+                'fecha_solicitud' => now(),
+                'fecha_requerida' => now()->toDateString(),
+                'hora_requerida' => $horaEntrega,
+                'ubicacion_destino_id' => $ubicacionDestinoId,
+                'asignatura_id' => ! empty($datosEstudiante['asignatura_id']) ? (int) $datosEstudiante['asignatura_id'] : null,
+                'revisada_por' => $panolero->id,
+                'observaciones' => $observaciones,
+            ]);
+
+            // 2. Crear detalles de solicitud
+            foreach ($items as $item) {
+                $tipo = $item['tipo'] ?? null;
+                $id = (int) ($item['id'] ?? 0);
+                $cantidad = isset($item['cantidad']) ? max(1.0, (float) $item['cantidad']) : 1.0;
+
+                DetalleSolicitud::create([
+                    'solicitud_id' => $solicitud->id,
+                    'equipo_id' => $tipo === 'equipo' ? $id : null,
+                    'insumo_id' => $tipo === 'insumo' ? $id : null,
+                    'cantidad_solicitada' => $cantidad,
+                    'cantidad_entregada' => 0.0,
+                    'cantidad_devuelta' => 0.0,
+                    'estado_devolucion' => 'pendiente',
+                ]);
+            }
+
+            // 3. Ejecutar entrega física atómica con validación de reservas y bloqueo pesimista
+            return $this->entregarMateriales(
+                solicitud: $solicitud,
+                entregador: $panolero,
+                receptorNombre: $nombre,
+                receptorTipo: 'estudiante',
+                detallesAEntregar: null,
+                receptorCredencialRut: $rut,
+                credencialVerificada: true,
+                horaEntrega: $horaEntrega,
+                horaDevolucionAcordada: $horaDevolucionAcordada,
+                exigirValidacionCredencial: true
+            );
+        });
+    }
+
+    /**
+     * Registra un préstamo a un estudiante en mesón de pañol con verificación obligatoria
+     * de credencial física y hora límite de devolución acordada (CP-26, Sección 3.4).
+     */
+    public function registrarPrestamoEstudiante(
+        SolicitudMaterial $solicitud,
+        User $entregador,
+        string $estudianteNombre,
+        string $credencialRut,
+        bool $credencialVerificada,
+        string $horaEntrega,
+        string $horaDevolucionAcordada,
+        ?array $detallesAEntregar = null
+    ): Entrega {
+        return $this->entregarMateriales(
+            solicitud: $solicitud,
+            entregador: $entregador,
+            receptorNombre: $estudianteNombre,
+            receptorTipo: 'estudiante',
+            detallesAEntregar: $detallesAEntregar,
+            receptorCredencialRut: $credencialRut,
+            credencialVerificada: $credencialVerificada,
+            horaEntrega: $horaEntrega,
+            horaDevolucionAcordada: $horaDevolucionAcordada,
+            exigirValidacionCredencial: true
+        );
     }
 
     /**

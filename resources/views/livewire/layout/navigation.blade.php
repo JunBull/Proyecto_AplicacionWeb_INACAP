@@ -83,7 +83,7 @@ new class extends Component
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                                     </svg>
                                     <div>
-                                        <div class="leading-tight">Inventario de Consumibles</div>
+                                        <div class="leading-tight">Inventario y Mantención de Equipo</div>
                                         <div class="text-[10px] text-slate-400 font-normal">Control físico y stock crítico</div>
                                     </div>
                                 </a>
@@ -391,7 +391,7 @@ new class extends Component
                     Despacho y Devoluciones
                 </x-responsive-nav-link>
                 <x-responsive-nav-link :href="route('panol.inventario')" :active="request()->routeIs('panol.inventario')" wire:navigate>
-                    Inventario de Consumibles
+                    Inventario y Mantención de Equipo
                 </x-responsive-nav-link>
                 <x-responsive-nav-link :href="route('panol.etiquetas')" :active="request()->routeIs('panol.etiquetas')" wire:navigate>
                     Etiquetas de Código de Barras
