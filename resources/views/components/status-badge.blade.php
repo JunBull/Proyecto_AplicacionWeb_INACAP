@@ -20,7 +20,7 @@ $config = match($estadoNorm) {
         'icon' => 'alert',
         'text' => $label ?? ($estadoNorm === 'stock_critico' ? 'Stock Crítico' : ucfirst(str_replace('_', ' ', $estadoNorm))),
     ],
-    'baja', 'dado_de_baja', 'cerrada', 'cerrado', 'no_disponible', 'inactivo', 'desechado' => [
+    'baja', 'dado_de_baja', 'cerrada', 'cerrado', 'no_disponible', 'inactivo', 'desechado', 'cancelada', 'cancelado' => [
         'bg' => 'bg-slate-100 text-slate-800 border-slate-300',
         'icon' => 'ban',
         'text' => $label ?? ucfirst(str_replace('_', ' ', $estadoNorm)),

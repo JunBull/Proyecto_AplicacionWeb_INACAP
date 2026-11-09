@@ -4,11 +4,9 @@ namespace Tests\Feature\HitoCuatro;
 
 use App\Exceptions\OperacionDuplicadaException;
 use App\Models\Carrera;
-use App\Models\DetalleSolicitud;
 use App\Models\Entrega;
 use App\Models\Insumo;
 use App\Models\MovimientoInventario;
-use App\Models\SolicitudMaterial;
 use App\Models\Ubicacion;
 use App\Models\User;
 use App\Services\PrestamoService;
@@ -21,11 +19,17 @@ class CasoPruebaCP22Test extends TestCase
     use RefreshDatabase;
 
     protected Carrera $carrera;
+
     protected Ubicacion $ubicacion;
+
     protected User $docente;
+
     protected User $panolero;
+
     protected Insumo $insumoConsumible;
+
     protected Insumo $insumoRetornable;
+
     protected PrestamoService $prestamoService;
 
     protected function setUp(): void

@@ -33,14 +33,6 @@
                     </svg>
                 </div>
 
-                <!-- Cabecera del panel lateral -->
-                <div class="relative z-10">
-                    <div class="inline-flex items-center gap-3 bg-white/10 backdrop-blur-md px-4 py-2 rounded-full border border-white/15">
-                        <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                        <span class="text-xs font-semibold tracking-wider uppercase text-red-100">Portal de Pañol Activo</span>
-                    </div>
-                </div>
-
                 <!-- Contenido central hero -->
                 <div class="relative z-10 max-w-xl my-auto py-8">
                     <div class="mb-6">
@@ -50,36 +42,11 @@
                     <h1 class="text-3xl xl:text-4xl font-extrabold tracking-tight text-white leading-tight">
                         Sistema Web de Gestión de Pañol e Inventario
                     </h1>
-                    <p class="mt-4 text-base xl:text-lg text-red-100/90 leading-relaxed font-normal">
-                        Área de Informática y Telecomunicaciones &bull; Sede Temuco. Control centralizado de equipos, consumibles, solicitudes de docencia y trazabilidad de activos.
-                    </p>
-
-                    <!-- Píldoras de roles autorizados -->
-                    <div class="mt-8 pt-6 border-t border-white/15 grid grid-cols-3 gap-3">
-                        <div class="bg-white/10 backdrop-blur-sm rounded-xl p-3.5 border border-white/10">
-                            <div class="text-xs uppercase tracking-wider text-red-200 font-bold">Administrador</div>
-                            <div class="text-[11px] text-white/80 mt-1 leading-snug">Presupuesto, compras, usuarios y directivas.</div>
-                        </div>
-                        <div class="bg-white/10 backdrop-blur-sm rounded-xl p-3.5 border border-white/10">
-                            <div class="text-xs uppercase tracking-wider text-red-200 font-bold">Pañolero</div>
-                            <div class="text-[11px] text-white/80 mt-1 leading-snug">Despachos, escaneo de barras, OCR y mantenimiento.</div>
-                        </div>
-                        <div class="bg-white/10 backdrop-blur-sm rounded-xl p-3.5 border border-white/10">
-                            <div class="text-xs uppercase tracking-wider text-red-200 font-bold">Docente</div>
-                            <div class="text-[11px] text-white/80 mt-1 leading-snug">Solicitudes anticipadas y catálogo en tiempo real.</div>
-                        </div>
-                    </div>
                 </div>
 
                 <!-- Pie de página del panel lateral con aclaración institucional -->
-                <div class="relative z-10 text-xs text-red-200/80 border-t border-white/10 pt-4 flex items-center justify-between">
+                <div class="relative z-10 text-xs text-red-200/80 border-t border-white/10 pt-4 flex items-center">
                     <span>INACAP Temuco &bull; Av. Luis Durand 02150</span>
-                    <span class="inline-flex items-center gap-1.5 bg-black/25 px-2.5 py-1 rounded text-[11px] text-white/90">
-                        <svg class="w-3.5 h-3.5 text-amber-300 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
-                        </svg>
-                        Estudiantes no requieren cuenta
-                    </span>
                 </div>
             </div>
 

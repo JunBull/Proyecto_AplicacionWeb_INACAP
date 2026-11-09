@@ -3,7 +3,6 @@
 namespace Tests\Feature\HitoDos;
 
 use App\Models\Carrera;
-use App\Models\Equipo;
 use App\Models\Ubicacion;
 use App\Models\User;
 use App\Services\EquipoService;
@@ -16,8 +15,11 @@ class CasoPruebaCP04Test extends TestCase
     use RefreshDatabase;
 
     protected Carrera $carrera;
+
     protected Ubicacion $ubicacion;
+
     protected User $panolero;
+
     protected EquipoService $equipoService;
 
     protected function setUp(): void
@@ -69,11 +71,11 @@ class CasoPruebaCP04Test extends TestCase
 
             try {
                 $this->equipoService->registrarEquipo([
-                    'codigo_barras' => 'EQ-FAIL-' . rand(1000, 9999),
+                    'codigo_barras' => 'EQ-FAIL-'.rand(1000, 9999),
                     'nombre' => $nombreInvalido,
                     'marca' => 'Genérica',
                     'modelo' => 'Genérico',
-                    'numero_serie' => 'SN-' . rand(1000, 9999),
+                    'numero_serie' => 'SN-'.rand(1000, 9999),
                     'criticidad' => 'media',
                     'ubicacion_id' => $this->ubicacion->id,
                 ], $this->panolero);
@@ -104,11 +106,11 @@ class CasoPruebaCP04Test extends TestCase
             );
 
             $equipo = $this->equipoService->registrarEquipo([
-                'codigo_barras' => 'EQ-VALID-' . ($index + 1),
+                'codigo_barras' => 'EQ-VALID-'.($index + 1),
                 'nombre' => $nombreValido,
                 'marca' => 'Dell',
                 'modelo' => 'Enterprise',
-                'numero_serie' => 'SN-OK-' . ($index + 1),
+                'numero_serie' => 'SN-OK-'.($index + 1),
                 'criticidad' => 'alta',
                 'ubicacion_id' => $this->ubicacion->id,
             ], $this->panolero);

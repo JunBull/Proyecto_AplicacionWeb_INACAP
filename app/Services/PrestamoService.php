@@ -64,6 +64,12 @@ class PrestamoService
      *
      * @param array{
      *     fecha_requerida: string,
+     *     hora_requerida?: ?string,
+     *     asignatura_id?: ?int,
+     *     ubicacion_destino_id?: ?int,
+     *     tipo_destino?: ?string,
+     *     edificio_destino?: ?string,
+     *     espacio_destino?: ?string,
      *     observaciones?: ?string
      * } $datos
      * @param array<int, array{
@@ -99,6 +105,9 @@ class PrestamoService
                 'revisada_por' => null,
                 'asignatura_id' => ! empty($datos['asignatura_id']) ? (int) $datos['asignatura_id'] : null,
                 'ubicacion_destino_id' => ! empty($datos['ubicacion_destino_id']) ? (int) $datos['ubicacion_destino_id'] : null,
+                'tipo_destino' => ! empty($datos['tipo_destino']) ? (string) $datos['tipo_destino'] : null,
+                'edificio_destino' => ! empty($datos['edificio_destino']) ? (string) $datos['edificio_destino'] : null,
+                'espacio_destino' => ! empty($datos['espacio_destino']) ? (string) $datos['espacio_destino'] : null,
                 'fecha_solicitud' => now(),
                 'fecha_requerida' => $fechaReq->toDateString(),
                 'hora_requerida' => ! empty($datos['hora_requerida']) ? (string) $datos['hora_requerida'] : null,
@@ -201,6 +210,27 @@ class PrestamoService
             'estado' => 'sin_disponibilidad',
             'revisada_por' => $revisor->id,
             'observaciones' => $motivo ? trim($motivo) : $solicitud->observaciones,
+        ]);
+
+        return $solicitud->fresh();
+    }
+
+    /**
+     * Cancela una solicitud de materiales (docente solicitante o administración).
+     */
+    public function cancelarSolicitud(SolicitudMaterial $solicitud, User $usuario, ?string $motivo = null): SolicitudMaterial
+    {
+        if ($solicitud->estado !== 'pendiente') {
+            throw new InvalidArgumentException("Solo se pueden cancelar solicitudes en estado 'Solicitado' (pendiente). Estado actual: '{$solicitud->estado}'.");
+        }
+
+        if ((int) $solicitud->solicitante_id !== (int) $usuario->id && ! $usuario->isAdmin() && ! $usuario->isPanolero()) {
+            throw new InvalidArgumentException('No tiene autorización para cancelar esta solicitud.');
+        }
+
+        $solicitud->update([
+            'estado' => 'cancelada',
+            'motivo_cancelacion' => $motivo ? trim($motivo) : 'Cancelada por el docente solicitante.',
         ]);
 
         return $solicitud->fresh();

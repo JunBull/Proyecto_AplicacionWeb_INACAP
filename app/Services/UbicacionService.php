@@ -83,13 +83,13 @@ class UbicacionService
 
         $nombreCarrera = $ubicacion->carrera?->nombre ?? 'Sin Carrera';
 
-        return $nombreCarrera . ' > ' . implode(' > ', $nodos);
+        return $nombreCarrera.' > '.implode(' > ', $nodos);
     }
 
     /**
      * Valida la coherencia de datos de la ubicación.
      *
-     * @param array<string, mixed> $datos
+     * @param  array<string, mixed>  $datos
      */
     protected function validarDatos(array $datos): void
     {

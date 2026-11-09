@@ -134,7 +134,7 @@ new #[Layout('layouts.app')] class extends Component
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-6 rounded-lg shadow-sm border border-gray-100">
             <div>
                 <h1 class="text-2xl font-bold text-gray-900">Bajas Técnicas y Propuestas de Reemplazo</h1>
-                <p class="text-sm text-gray-500 mt-1">Evaluación de costos de reparación vs. reposición con respaldos documentales (CP-07) y autorización de la Dirección.</p>
+                <p class="text-sm text-gray-500 mt-1">Evaluación de costos de reparación vs. reposición y autorización de la Dirección.</p>
             </div>
             @if(Auth::user()->rol !== 'docente')
                 <button wire:click="abrirModalProponer" class="inline-flex items-center px-4 py-2 bg-red-700 hover:bg-red-800 text-white font-medium text-sm rounded-md shadow-sm transition">
@@ -225,7 +225,7 @@ new #[Layout('layouts.app')] class extends Component
         <div class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 p-4">
             <div class="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 space-y-4">
                 <div class="flex justify-between items-center border-b pb-3">
-                    <h3 class="text-lg font-bold text-gray-900">Proponer Baja o Reemplazo de Activo (CP-07)</h3>
+                    <h3 class="text-lg font-bold text-gray-900">Proponer Baja o Reemplazo de Activo</h3>
                     <button wire:click="$set('mostrarModalProponer', false)" class="text-gray-400 hover:text-gray-600">&times;</button>
                 </div>
 

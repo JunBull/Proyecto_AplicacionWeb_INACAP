@@ -176,7 +176,7 @@ new #[Layout('layouts.app')] class extends Component
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-6 rounded-lg shadow-sm border border-gray-100">
             <div>
                 <h1 class="text-2xl font-bold text-gray-900">Inventario y Mantención de Equipo</h1>
-                <p class="text-sm text-gray-500 mt-1">Control granular de ubicaciones (mueble, estante, cajón), transacciones ACID y monitor de stock crítico con cotización rápida (KPI-04 / CP-24).</p>
+                <p class="text-sm text-gray-500 mt-1">Control de existencias, ubicaciones físicas y alertas de stock crítico.</p>
             </div>
             @if(Auth::user()->rol !== 'docente')
                 <button wire:click="abrirModalCrear" class="inline-flex items-center px-4 py-2 bg-red-700 hover:bg-red-800 text-white font-medium text-sm rounded-md shadow-sm transition">
@@ -205,7 +205,7 @@ new #[Layout('layouts.app')] class extends Component
                             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
                         </div>
                         <div>
-                            <div class="font-extrabold text-base text-red-950">Alertas de Stock Crítico (KPI-04 / CP-24)</div>
+                            <div class="font-extrabold text-base text-red-950" data-kpi="Alertas de Stock Crítico (KPI-04 / CP-24)">Alertas de Stock Crítico</div>
                             <div class="text-xs text-red-800">
                                 Existen <strong>{{ $criticosCount }}</strong> insumo(s) con existencias iguales o inferiores al umbral mínimo operativo.
                             </div>
@@ -293,7 +293,7 @@ new #[Layout('layouts.app')] class extends Component
                         <tr>
                             <th class="px-6 py-3 text-left">Código</th>
                             <th class="px-6 py-3 text-left">Insumo / Material</th>
-                            <th class="px-6 py-3 text-left">Ubicación Granular (CP-11)</th>
+                            <th class="px-6 py-3 text-left">Ubicación Física</th>
                             <th class="px-6 py-3 text-center">Stock Actual</th>
                             <th class="px-6 py-3 text-center">Stock Mínimo</th>
                             <th class="px-6 py-3 text-center">Tipo</th>
@@ -343,11 +343,11 @@ new #[Layout('layouts.app')] class extends Component
                                         <span class="inline-flex px-2 py-0.5 text-xs font-medium rounded bg-gray-100 text-gray-600">Consumible</span>
                                     @endif
                                 </td>
-                                <td class="px-6 py-4 text-right space-x-2 whitespace-nowrap">
+                                <td class="px-6 py-4 text-right whitespace-nowrap">
                                     @if(Auth::user()->rol !== 'docente')
-                                        <button wire:click="abrirModalMovimiento({{ $ins->id }}, 'ingreso')" class="text-xs font-semibold text-green-700 hover:text-green-900">+ Ingreso</button>
-                                        <button wire:click="abrirModalMovimiento({{ $ins->id }}, 'salida')" class="text-xs font-semibold text-red-700 hover:text-red-900">- Salida</button>
-                                        <button wire:click="abrirModalMovimiento({{ $ins->id }}, 'ajuste')" class="text-xs font-semibold text-blue-700 hover:text-blue-900">Ajuste</button>
+                                        <button wire:click="abrirModalMovimiento({{ $ins->id }}, 'ajuste')" class="text-xs font-semibold text-blue-700 hover:text-blue-900 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 transition">
+                                            Ajuste
+                                        </button>
                                     @endif
                                 </td>
                             </tr>
@@ -397,14 +397,14 @@ new #[Layout('layouts.app')] class extends Component
                             <input wire:model="stock_actual" type="number" step="1" min="0" class="w-full text-sm rounded-md border-gray-300">
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold text-gray-700 uppercase mb-1">Stock Mínimo (Umbral KPI-04)</label>
+                            <label class="block text-xs font-semibold text-gray-700 uppercase mb-1">Stock Mínimo</label>
                             <input wire:model="stock_minimo" type="number" step="1" min="0" class="w-full text-sm rounded-md border-gray-300">
                             @error('stock_minimo') <span class="text-xs text-red-600 font-medium">{{ $message }}</span> @enderror
                         </div>
                     </div>
 
                     <div>
-                        <label class="block text-xs font-semibold text-gray-700 uppercase mb-1">Ubicación Física Detallada (CP-11)</label>
+                        <label class="block text-xs font-semibold text-gray-700 uppercase mb-1">Ubicación Física</label>
                         <select wire:model="ubicacion_id" class="w-full text-sm rounded-md border-gray-300">
                             @foreach($this->ubicaciones() as $ub)
                                 <option value="{{ $ub->id }}">{{ $ub->nombre }} ({{ $ub->tipo }}) - {{ $ub->carrera?->codigo }}</option>
@@ -448,11 +448,11 @@ new #[Layout('layouts.app')] class extends Component
 
                 <div>
                     <label class="block text-xs font-semibold text-gray-700 uppercase mb-1">
-                        {{ $tipoOperacion === 'ajuste' ? 'Nuevo Stock Físico Verificado' : 'Cantidad a Mover (CP-13)' }}
+                        {{ $tipoOperacion === 'ajuste' ? 'Nuevo Stock Físico Verificado' : 'Cantidad a Mover' }}
                     </label>
                     <input wire:model="cantidadMovimiento" type="number" step="1" min="{{ $tipoOperacion === 'ajuste' ? 0 : 1 }}" class="w-full text-sm rounded-md border-gray-300">
                     <p class="text-xs text-gray-500 mt-1">
-                        {{ $tipoOperacion === 'salida' ? 'No se permiten cantidades superiores a las existencias ni valores negativos.' : 'Operación atómica registrada en kardex inmutable.' }}
+                        {{ $tipoOperacion === 'salida' ? 'No se permiten cantidades superiores a las existencias ni valores negativos.' : 'Operación registrada en el historial de movimientos.' }}
                     </p>
                 </div>
 

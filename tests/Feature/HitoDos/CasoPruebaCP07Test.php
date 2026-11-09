@@ -4,7 +4,6 @@ namespace Tests\Feature\HitoDos;
 
 use App\Models\BajaReemplazo;
 use App\Models\Carrera;
-use App\Models\Documento;
 use App\Models\Equipo;
 use App\Models\Ubicacion;
 use App\Models\User;
@@ -22,12 +21,19 @@ class CasoPruebaCP07Test extends TestCase
     use RefreshDatabase;
 
     protected Carrera $carrera;
+
     protected Ubicacion $ubicacion;
+
     protected User $panolero;
+
     protected User $administrador;
+
     protected User $docente;
+
     protected EquipoService $equipoService;
+
     protected FallaService $fallaService;
+
     protected BajaReemplazoService $bajaService;
 
     protected function setUp(): void

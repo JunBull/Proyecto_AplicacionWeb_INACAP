@@ -19,8 +19,11 @@ class CasoPruebaCP03Test extends TestCase
     use RefreshDatabase;
 
     protected Carrera $carrera;
+
     protected Ubicacion $ubicacion;
+
     protected User $panolero;
+
     protected EquipoService $equipoService;
 
     protected function setUp(): void

@@ -285,7 +285,7 @@ new #[Layout('layouts.app')] class extends Component
 
                 <div class="space-y-4">
                     <div>
-                        <label class="block text-xs font-semibold text-gray-700 uppercase mb-1">Nombre Estandarizado (CP-04)</label>
+                        <label class="block text-xs font-semibold text-gray-700 uppercase mb-1">Nombre Estandarizado</label>
                         <input wire:model="nombre" type="text" placeholder="Ej: Computador de Escritorio All-in-One Intel Core i7 - Lab Redes" class="w-full text-sm rounded-md border-gray-300">
                         <p class="text-xs text-gray-500 mt-1">Debe ser descriptivo. Prohibidas siglas como PC-01, SW-L2.</p>
                         @error('nombre') <span class="text-xs text-red-600 font-medium">{{ $message }}</span> @enderror

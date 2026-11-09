@@ -43,6 +43,8 @@ Route::middleware(['auth', 'role:administrador'])->prefix('admin')->name('admin.
 // Módulo Pañol: Encargado de Pañol y Administrador
 Route::middleware(['auth', 'role:encargado_panol,administrador'])->prefix('panol')->name('panol.')->group(function () {
     Volt::route('/despacho', 'pages.despacho.index')->name('despacho');
+    Volt::route('/prestamos', 'pages.despacho.index')->name('prestamos');
+    Volt::route('/devoluciones', 'pages.devoluciones.index')->name('devoluciones');
     Volt::route('/equipos', 'pages.equipos.index')->name('equipos');
     Volt::route('/inventario', 'pages.inventario.index')->name('inventario');
     Volt::route('/mantenimientos', 'pages.mantenimientos.index')->name('mantenimientos');
@@ -56,7 +58,10 @@ Route::middleware(['auth', 'role:encargado_panol,administrador'])->prefix('panol
 // Módulo Docente: Docente, Pañolero y Administrador
 Route::middleware(['auth', 'role:docente,encargado_panol,administrador'])->prefix('docente')->name('docente.')->group(function () {
     Volt::route('/solicitudes', 'pages.solicitudes.index')->name('solicitudes');
-    Volt::route('/equipos', 'pages.equipos.index')->name('equipos');
+    Volt::route('/novedades', 'pages.docente.novedades')->name('novedades');
+    Route::get('/equipos', function () {
+        abort(403, 'Acceso prohibido: Los docentes no tienen permisos para consultar el catálogo de equipos.');
+    })->name('equipos');
 });
 
 require __DIR__.'/auth.php';

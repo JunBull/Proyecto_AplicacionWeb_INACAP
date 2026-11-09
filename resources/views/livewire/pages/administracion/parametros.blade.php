@@ -110,7 +110,7 @@ new #[Layout('layouts.app')] class extends Component
             <div class="md:col-span-2">
                 <label class="block text-sm font-bold text-slate-900">Mínimo de Cotizaciones para Adjudicación</label>
                 <p class="text-xs text-slate-500 mt-0.5">
-                    Número mínimo de cotizaciones de proveedores requeridas para adjudicar una compra sin requerir justificación excepcional (CP-18).
+                    Número mínimo de cotizaciones de proveedores requeridas para adjudicar una compra sin requerir justificación excepcional.
                 </p>
             </div>
             <div>
@@ -144,7 +144,7 @@ new #[Layout('layouts.app')] class extends Component
             <div class="md:col-span-2">
                 <label class="block text-sm font-bold text-slate-900">Despacho Asíncrono de Reportes PDF de Incidencias</label>
                 <p class="text-xs text-slate-500 mt-0.5">
-                    Al registrarse una anomalía o avería docente, despacha automáticamente el PDF oficial firmado a Pañoleros y Administradores mediante colas de Laravel (CP-28).
+                    Al registrarse una anomalía o avería docente, despacha automáticamente el PDF oficial a Pañoleros y Administradores.
                 </p>
             </div>
             <div class="flex items-center h-10">

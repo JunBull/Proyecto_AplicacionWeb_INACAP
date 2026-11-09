@@ -10,7 +10,6 @@ use App\Models\Equipo;
 use App\Models\Insumo;
 use App\Models\ParametroSistema;
 use App\Models\SolicitudMaterial;
-use App\Services\BarcodeService;
 use App\Services\PrestamoService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -19,7 +18,7 @@ use Livewire\Volt\Component;
 
 new #[Layout('layouts.app')] class extends Component
 {
-    public string $pestanaActiva = 'solicitudes'; // solicitudes, activos, historial
+    public string $pestanaActiva = 'abiertas'; // abiertas, vencidas, historial (compatible con legacy: solicitudes, activos)
     public string $filtroEstado = 'todas'; // todas, pendientes, aprobadas, entregadas_abiertas, cerradas
     public string $busquedaRapida = '';
     public string $escaneoCodigoBarras = '';
@@ -65,6 +64,155 @@ new #[Layout('layouts.app')] class extends Component
         Gate::authorize('viewAny', Entrega::class);
     }
 
+    public function conteoAbiertas(): int
+    {
+        return SolicitudMaterial::whereIn('estado', ['pendiente', 'aprobada', 'entregada_abierta'])->count();
+    }
+
+    public function conteoVencidas(): int
+    {
+        $hoy = now()->toDateString();
+        $hora = now()->format('H:i:s');
+
+        return Entrega::where('receptor_tipo', 'estudiante')
+            ->whereHas('solicitud', fn ($q) => $q->where('estado', 'entregada_abierta'))
+            ->where(function ($q) use ($hoy, $hora) {
+                $q->whereDate('fecha_entrega', '<', $hoy)
+                  ->orWhere(function ($sub) use ($hoy, $hora) {
+                      $sub->whereDate('fecha_entrega', '=', $hoy)
+                          ->whereNotNull('hora_devolucion_acordada')
+                          ->where('hora_devolucion_acordada', '<', $hora);
+                  });
+            })
+            ->count();
+    }
+
+    public function solicitudesAbiertas()
+    {
+        $query = SolicitudMaterial::with([
+            'solicitante',
+            'revisor',
+            'detalles.insumo',
+            'detalles.equipo',
+            'entregas.devoluciones',
+            'asignatura',
+            'ubicacionDestino',
+        ])
+        ->whereIn('estado', ['pendiente', 'aprobada', 'entregada_abierta'])
+        ->orderByDesc('id');
+
+        if ($this->filtroEstado === 'pendientes') {
+            $query->where('estado', 'pendiente');
+        } elseif ($this->filtroEstado === 'aprobadas') {
+            $query->where('estado', 'aprobada');
+        } elseif ($this->filtroEstado === 'entregadas_abiertas') {
+            $query->where('estado', 'entregada_abierta');
+        }
+
+        if (trim($this->busquedaRapida) !== '') {
+            $term = mb_strtolower(trim($this->busquedaRapida));
+            $t = '%' . $term . '%';
+            $query->where(function ($q) use ($t, $term) {
+                if (is_numeric($term)) {
+                    $q->where('id', (int) $term);
+                }
+                $q->orWhereRaw('LOWER(observaciones) LIKE ?', [$t])
+                  ->orWhereHas('solicitante', fn ($u) => $u->whereRaw('LOWER(nombre) LIKE ?', [$t])->orWhereRaw('LOWER(email) LIKE ?', [$t]))
+                  ->orWhereHas('entregas', fn ($e) => $e->whereRaw('LOWER(receptor_nombre) LIKE ?', [$t])->orWhereRaw('LOWER(receptor_credencial_rut) LIKE ?', [$t]))
+                  ->orWhereHas('detalles.equipo', fn ($eq) => $eq->whereRaw('LOWER(nombre) LIKE ?', [$t])->orWhereRaw('LOWER(codigo_barras) LIKE ?', [$t]))
+                  ->orWhereHas('detalles.insumo', fn ($ins) => $ins->whereRaw('LOWER(nombre) LIKE ?', [$t])->orWhereRaw('LOWER(codigo_barras) LIKE ?', [$t]));
+            });
+        }
+
+        return $query->paginate(15);
+    }
+
+    public function prestamosVencidos()
+    {
+        $hoy = now()->toDateString();
+        $hora = now()->format('H:i:s');
+
+        $query = Entrega::with([
+            'solicitud.solicitante',
+            'solicitud.detalles.insumo',
+            'solicitud.detalles.equipo',
+            'entregador',
+            'devoluciones',
+        ])
+        ->where('receptor_tipo', 'estudiante')
+        ->whereHas('solicitud', fn ($q) => $q->where('estado', 'entregada_abierta'))
+        ->where(function ($q) use ($hoy, $hora) {
+            $q->whereDate('fecha_entrega', '<', $hoy)
+              ->orWhere(function ($sub) use ($hoy, $hora) {
+                  $sub->whereDate('fecha_entrega', '=', $hoy)
+                      ->whereNotNull('hora_devolucion_acordada')
+                      ->where('hora_devolucion_acordada', '<', $hora);
+              });
+        })
+        ->orderBy('hora_devolucion_acordada');
+
+        if (trim($this->busquedaRapida) !== '') {
+            $term = mb_strtolower(trim($this->busquedaRapida));
+            $t = '%' . $term . '%';
+            $query->where(function ($q) use ($t, $term) {
+                if (is_numeric($term)) {
+                    $q->where('id', (int) $term);
+                }
+                $q->orWhereRaw('LOWER(receptor_nombre) LIKE ?', [$t])
+                  ->orWhereRaw('LOWER(receptor_credencial_rut) LIKE ?', [$t])
+                  ->orWhereHas('solicitud.detalles.equipo', fn ($eq) => $eq->whereRaw('LOWER(nombre) LIKE ?', [$t])->orWhereRaw('LOWER(codigo_barras) LIKE ?', [$t]))
+                  ->orWhereHas('solicitud.detalles.insumo', fn ($ins) => $ins->whereRaw('LOWER(nombre) LIKE ?', [$t])->orWhereRaw('LOWER(codigo_barras) LIKE ?', [$t]));
+            });
+        }
+
+        return $query->paginate(15);
+    }
+
+    public function historialEntregas()
+    {
+        $query = Entrega::with([
+            'solicitud.solicitante',
+            'solicitud.detalles.insumo',
+            'solicitud.detalles.equipo',
+            'entregador',
+            'devoluciones.recibidor',
+        ])
+        ->orderByDesc('id');
+
+        if (trim($this->busquedaRapida) !== '') {
+            $term = mb_strtolower(trim($this->busquedaRapida));
+            $t = '%' . $term . '%';
+            $query->where(function ($q) use ($t, $term) {
+                if (is_numeric($term)) {
+                    $q->where('id', (int) $term);
+                }
+                $q->orWhereRaw('LOWER(receptor_nombre) LIKE ?', [$t])
+                  ->orWhereRaw('LOWER(receptor_credencial_rut) LIKE ?', [$t])
+                  ->orWhereHas('solicitud.solicitante', fn ($u) => $u->whereRaw('LOWER(nombre) LIKE ?', [$t])->orWhereRaw('LOWER(email) LIKE ?', [$t]))
+                  ->orWhereHas('solicitud.detalles.equipo', fn ($eq) => $eq->whereRaw('LOWER(nombre) LIKE ?', [$t])->orWhereRaw('LOWER(codigo_barras) LIKE ?', [$t]))
+                  ->orWhereHas('solicitud.detalles.insumo', fn ($ins) => $ins->whereRaw('LOWER(nombre) LIKE ?', [$t])->orWhereRaw('LOWER(codigo_barras) LIKE ?', [$t]));
+            });
+        }
+
+        return $query->paginate(15);
+    }
+
+    // Alias retrocompatibles para tests existentes
+    public function solicitudes()
+    {
+        return $this->solicitudesAbiertas();
+    }
+
+    public function entregasActivas()
+    {
+        return Entrega::with(['solicitud.solicitante', 'solicitud.detalles.insumo', 'solicitud.detalles.equipo', 'entregador', 'devoluciones'])
+            ->whereHas('solicitud', function ($q) {
+                $q->where('estado', 'entregada_abierta');
+            })
+            ->orderByDesc('id')
+            ->get();
+    }
+
     public function escanearCodigo(): void
     {
         $codigo = trim($this->escaneoCodigoBarras);
@@ -72,7 +220,6 @@ new #[Layout('layouts.app')] class extends Component
             return;
         }
 
-        // Buscar primero como equipo
         $equipo = Equipo::with('ubicacion')->where('codigo_barras', $codigo)->first();
         if ($equipo) {
             $this->resultadoEscaneo = "Equipo encontrado: {$equipo->nombre} (Estado: {$equipo->estado}) en {$equipo->ubicacion->nombre}.";
@@ -80,7 +227,6 @@ new #[Layout('layouts.app')] class extends Component
             return;
         }
 
-        // Buscar como insumo
         $insumo = Insumo::with('ubicacion')->where('codigo_barras', $codigo)->first();
         if ($insumo) {
             $tipo = $insumo->es_retornable ? 'Retornable' : 'Consumible';
@@ -417,7 +563,7 @@ new #[Layout('layouts.app')] class extends Component
 
             session()->flash('mensaje', "¡Préstamo presencial despachado exitosamente al alumno {$this->presencialNombre}! Material registrado en préstamos activos.");
             $this->mostrarModalPresencial = false;
-            $this->pestanaActiva = 'activos';
+            $this->pestanaActiva = 'abiertas';
         } catch (\Illuminate\Validation\ValidationException $e) {
             $this->errorModalPresencial = collect($e->errors())->flatten()->first();
         } catch (EquipoNoDisponibleException|StockInsuficienteException|StockReservadoClasesException|OperacionDuplicadaException $e) {
@@ -473,226 +619,199 @@ new #[Layout('layouts.app')] class extends Component
             'insumos' => $insumos,
         ];
     }
-
-    public function solicitudes()
-    {
-        $query = SolicitudMaterial::with([
-            'solicitante',
-            'revisor',
-            'detalles.insumo',
-            'detalles.equipo',
-            'entregas',
-            'asignatura',
-            'ubicacionDestino',
-        ])->orderByDesc('id');
-
-        if ($this->filtroEstado === 'pendientes') {
-            $query->where('estado', 'pendiente');
-        } elseif ($this->filtroEstado === 'aprobadas') {
-            $query->where('estado', 'aprobada');
-        } elseif ($this->filtroEstado === 'entregadas_abiertas') {
-            $query->where('estado', 'entregada_abierta');
-        } elseif ($this->filtroEstado === 'cerradas') {
-            $query->where('estado', 'cerrada');
-        }
-
-        if (trim($this->busquedaRapida) !== '') {
-            $t = '%' . trim($this->busquedaRapida) . '%';
-            $query->where(function ($q) use ($t) {
-                $q->whereHas('solicitante', fn ($u) => $u->where('name', 'LIKE', $t)->orWhere('email', 'LIKE', $t))
-                  ->orWhere('id', 'LIKE', $t)
-                  ->orWhere('observaciones', 'LIKE', $t);
-            });
-        }
-
-        return $query->paginate(15);
-    }
-
-    public function entregasActivas()
-    {
-        return Entrega::with(['solicitud.solicitante', 'solicitud.detalles.insumo', 'solicitud.detalles.equipo', 'entregador', 'devoluciones'])
-            ->whereHas('solicitud', function ($q) {
-                $q->where('estado', 'entregada_abierta');
-            })
-            ->orderByDesc('id')
-            ->get();
-    }
-
-    public function historialEntregas()
-    {
-        return Entrega::with(['solicitud.solicitante', 'entregador', 'devoluciones.recibidor'])
-            ->orderByDesc('id')
-            ->paginate(15);
-    }
 }; ?>
 
 <div class="py-6 px-3 sm:px-6 lg:px-8 max-w-7xl mx-auto">
-    <!-- Encabezado del Módulo Pañolero -->
-    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+    <!-- Encabezado del Módulo Pañolero (Ponytail: Simplicidad Activa) -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div>
             <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
                 <svg class="w-7 h-7 text-red-600 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>
                 </svg>
-                Gestión de Mesón: Despacho y Devoluciones
+                <span>Préstamos</span>
+                <span class="sr-only">Gestión de Mesón: Despacho y Devoluciones</span>
             </h1>
-            <p class="text-sm text-gray-500 mt-1">Revisión de solicitudes anticipadas, control de entregas por ventanilla e inspección física de devoluciones.</p>
         </div>
 
         <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-            <!-- Botón Préstamo Presencial en Mesón a Estudiantes (Sección 3.4) -->
-            <button
-                wire:click="abrirModalPresencial"
-                class="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-red-700 hover:bg-red-800 text-white font-bold text-xs sm:text-sm rounded-xl shadow-sm hover:shadow transition active:scale-95 shrink-0"
-            >
-                <svg class="w-4 h-4 text-white shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
-                <span>Nuevo Préstamo en Mesón</span>
-                <span class="text-white/80 font-normal hidden lg:inline">(Presencial Alumno)</span>
-            </button>
-
             <!-- Escáner Rápido de Código de Barras (Hardware 1D / Teclado) -->
-            <div class="w-full sm:w-72 bg-white p-2 rounded-xl border border-slate-200 shadow-xs">
+            <div class="w-full sm:w-72 bg-white p-1.5 rounded-xl border border-slate-200 shadow-2xs">
                 <form wire:submit.prevent="escanearCodigo" class="flex gap-1.5">
                     <div class="relative flex-1">
                         <input
                             type="text"
                             wire:model="escaneoCodigoBarras"
-                            autofocus
                             placeholder="Escanear código..."
-                            class="w-full text-xs font-mono py-1.5 pl-8 pr-2 border-slate-300 rounded-lg focus:ring-red-600 focus:border-red-600"
+                            class="w-full text-xs py-1 px-2.5 border-slate-200 rounded-lg focus:ring-red-500 focus:border-red-500"
                         />
-                        <svg class="w-4 h-4 text-slate-400 absolute left-2.5 top-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"></path>
-                        </svg>
                     </div>
-                    <button type="submit" wire:loading.attr="disabled" class="px-2.5 py-1.5 bg-red-700 text-white text-xs font-semibold rounded-lg hover:bg-red-800 disabled:opacity-50 transition">
+                    <button type="submit" class="px-2.5 py-1 bg-slate-900 text-white text-xs font-semibold rounded-lg hover:bg-black transition">
                         Verificar
                     </button>
                 </form>
-                @if($resultadoEscaneo)
-                    <div class="mt-2 text-[11px] p-2 bg-blue-50 text-blue-800 rounded border border-blue-200 flex items-center justify-between">
-                        <span>{{ $resultadoEscaneo }}</span>
-                        <button wire:click="$set('resultadoEscaneo', null)" class="text-blue-600 font-bold ml-2">&times;</button>
-                    </div>
-                @endif
             </div>
+
+            <!-- Botón Préstamo Presencial en Mesón a Estudiantes -->
+            <button
+                wire:click="abrirModalPresencial"
+                class="inline-flex items-center justify-center gap-2 px-4 py-2 bg-red-700 hover:bg-red-800 text-white font-bold text-xs sm:text-sm rounded-xl shadow-2xs hover:shadow transition active:scale-95 shrink-0"
+            >
+                <svg class="w-4 h-4 text-white shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                </svg>
+                <span>+ Préstamo Alumno</span>
+            </button>
         </div>
     </div>
 
+    @if($resultadoEscaneo)
+        <div class="mb-4 text-xs p-3 bg-blue-50 text-blue-800 rounded-xl border border-blue-200 flex items-center justify-between">
+            <span>{{ $resultadoEscaneo }}</span>
+            <button wire:click="$set('resultadoEscaneo', null)" class="text-blue-600 font-bold ml-2">&times;</button>
+        </div>
+    @endif
+
     <!-- Alertas Flash -->
     @if(session()->has('mensaje'))
-        <div class="mb-4 p-4 rounded-lg bg-green-50 border border-green-200 text-green-800 flex items-center gap-2">
+        <div class="mb-4 p-4 rounded-xl bg-green-50 border border-green-200 text-green-800 text-xs flex items-center gap-2">
             <svg class="w-5 h-5 text-green-600 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                 <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
             </svg>
-            <span class="text-sm font-medium">{{ session('mensaje') }}</span>
+            <span class="font-semibold">{{ session('mensaje') }}</span>
         </div>
     @endif
 
     @if(session()->has('error'))
-        <div class="mb-4 p-4 rounded-lg bg-red-50 border border-red-200 text-red-800 flex items-center gap-2">
+        <div class="mb-4 p-4 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs flex items-center gap-2">
             <svg class="w-5 h-5 text-red-600 shrink-0" fill="currentColor" viewBox="0 0 20 20">
                 <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
             </svg>
-            <span class="text-sm font-medium">{{ session('error') }}</span>
+            <span class="font-semibold">{{ session('error') }}</span>
         </div>
     @endif
 
-    <!-- Pestañas Principales del Panel -->
-    <div class="flex border-b border-gray-200 mb-6 bg-white rounded-t-xl px-4 pt-2">
-        <button
-            wire:click="$set('pestanaActiva', 'solicitudes')"
-            class="py-3 px-4 text-sm font-semibold border-b-2 flex items-center gap-2 transition
-                {{ $pestanaActiva === 'solicitudes' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700' }}"
-        >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-            </svg>
-            Cola de Solicitudes y Despacho
-        </button>
-        <button
-            wire:click="$set('pestanaActiva', 'activos')"
-            class="py-3 px-4 text-sm font-semibold border-b-2 flex items-center gap-2 transition
-                {{ $pestanaActiva === 'activos' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700' }}"
-        >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-            </svg>
-            Préstamos Activos (Esperando Devolución)
-        </button>
-        <button
-            wire:click="$set('pestanaActiva', 'historial')"
-            class="py-3 px-4 text-sm font-semibold border-b-2 flex items-center gap-2 transition
-                {{ $pestanaActiva === 'historial' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700' }}"
-        >
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
-            </svg>
-            Trazabilidad Histórica
-        </button>
+    <!-- Barra de Control: Pestañas + Buscador Integrado -->
+    @php
+        $totalAbiertas = $this->conteoAbiertas();
+        $totalVencidas = $this->conteoVencidas();
+    @endphp
+
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6 bg-white p-2 sm:p-2.5 rounded-2xl border border-slate-200/90 shadow-2xs">
+        <!-- Pestañas (Pills) -->
+        <div class="flex items-center gap-1.5 overflow-x-auto p-1 bg-slate-100/80 rounded-xl">
+            <button
+                type="button"
+                wire:click="$set('pestanaActiva', 'abiertas')"
+                class="inline-flex items-center gap-2 px-3.5 py-1.5 text-xs font-bold rounded-lg transition {{ in_array($pestanaActiva, ['abiertas', 'solicitudes', 'activos']) ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-white/50' }}"
+            >
+                <span>Abiertas</span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] font-extrabold {{ in_array($pestanaActiva, ['abiertas', 'solicitudes', 'activos']) ? 'bg-red-100 text-red-700' : 'bg-slate-200 text-slate-700' }}">
+                    {{ $totalAbiertas }}
+                </span>
+            </button>
+
+            <button
+                type="button"
+                wire:click="$set('pestanaActiva', 'vencidas')"
+                class="inline-flex items-center gap-2 px-3.5 py-1.5 text-xs font-bold rounded-lg transition {{ $pestanaActiva === 'vencidas' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-white/50' }}"
+            >
+                <span>Vencidas</span>
+                <span class="px-1.5 py-0.2 rounded-full text-[10px] font-extrabold {{ $totalVencidas > 0 ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-700' }}">
+                    {{ $totalVencidas }}
+                </span>
+            </button>
+
+            <button
+                type="button"
+                wire:click="$set('pestanaActiva', 'historial')"
+                class="inline-flex items-center gap-2 px-3.5 py-1.5 text-xs font-bold rounded-lg transition {{ $pestanaActiva === 'historial' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900 hover:bg-white/50' }}"
+            >
+                <span>Historial</span>
+            </button>
+        </div>
+
+        <!-- Buscador Reactivo Integrado -->
+        <div class="relative w-full md:w-80">
+            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                </svg>
+            </div>
+            <input
+                type="text"
+                wire:model.live.debounce.300ms="busquedaRapida"
+                placeholder="Buscar por persona, credencial o ítem..."
+                class="w-full text-xs py-2 pl-9 pr-8 border-slate-200 rounded-xl bg-slate-50/50 hover:bg-white focus:bg-white focus:ring-2 focus:ring-red-600 focus:border-red-600 transition placeholder:text-slate-400"
+            />
+            @if($busquedaRapida !== '')
+                <button
+                    type="button"
+                    wire:click="$set('busquedaRapida', '')"
+                    class="absolute inset-y-0 right-0 pr-2.5 flex items-center text-slate-400 hover:text-slate-600"
+                >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            @endif
+        </div>
     </div>
 
-    <!-- PESTAÑA 1: COLA DE SOLICITUDES Y DESPACHO -->
-    @if($pestanaActiva === 'solicitudes')
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
-            <!-- Barra de Filtros y Búsqueda -->
+    <!-- PESTAÑA 1: ABIERTAS -->
+    @if(in_array($pestanaActiva, ['abiertas', 'solicitudes', 'activos']))
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-2xs p-4 sm:p-6">
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+                <div>
+                    <h2 class="text-sm font-bold text-slate-900">Solicitudes y Préstamos Abiertos</h2>
+                    <span class="text-xs text-slate-500 font-normal">Pedidos docentes listos para entrega directa en sala/laboratorio y préstamos en curso.</span>
+                </div>
                 <div class="flex items-center gap-2">
-                    <span class="text-xs text-gray-500 font-medium">Estado:</span>
+                    <span class="text-xs text-slate-500 font-medium">Estado:</span>
                     <select
                         wire:model.live="filtroEstado"
-                        class="text-xs border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500 py-1.5"
+                        class="text-xs border-slate-300 rounded-lg focus:ring-red-500 focus:border-red-500 py-1.5 bg-slate-50"
                     >
-                        <option value="todas">Todas las Solicitudes</option>
-                        <option value="pendientes">Pendientes de Revisión</option>
-                        <option value="aprobadas">Aprobadas para Entrega</option>
+                        <option value="todas">Todos los estados</option>
+                        <option value="pendientes">Pendientes</option>
+                        <option value="aprobadas">Aprobadas</option>
                         <option value="entregadas_abiertas">Préstamo Abierto</option>
-                        <option value="cerradas">Cerradas</option>
                     </select>
-                </div>
-                <div class="w-full sm:w-64">
-                    <input
-                        type="text"
-                        wire:model.live.debounce.300ms="busquedaRapida"
-                        placeholder="Buscar por solicitante, folio..."
-                        class="w-full text-xs py-1.5 border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500"
-                    />
                 </div>
             </div>
 
-            @php $solicitudesPaginadas = $this->solicitudes(); @endphp
+            @php $solicitudesPaginadas = $this->solicitudesAbiertas(); @endphp
 
             @if($solicitudesPaginadas->isEmpty())
-                <div class="text-center py-12 text-gray-400 text-sm">
-                    No se encontraron solicitudes con los filtros aplicados.
+                <div class="text-center py-12 text-slate-400 text-xs">
+                    No se encontraron solicitudes o préstamos abiertos con los filtros aplicados.
                 </div>
             @else
                 <div class="space-y-4">
                     @foreach($solicitudesPaginadas as $sol)
-                        <div class="border border-gray-200 rounded-xl p-4 hover:border-gray-300 transition bg-white shadow-xs">
-                            <div class="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-gray-100 pb-3">
+                        <div class="border border-slate-200 rounded-xl p-4 hover:border-slate-300 transition bg-white shadow-2xs">
+                            <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 pb-3">
                                 <div>
                                     <div class="flex items-center gap-2">
-                                        <span class="font-bold text-gray-900 text-base">#SOL-{{ str_pad($sol->id, 5, '0', STR_PAD_LEFT) }}</span>
-                                        <span class="text-xs font-semibold px-2.5 py-0.5 rounded-full
+                                        <span class="font-bold text-slate-900 text-sm">#SOL-{{ str_pad($sol->id, 5, '0', STR_PAD_LEFT) }}</span>
+                                        <span class="text-xs font-bold px-2.5 py-0.5 rounded-full
                                             {{ match($sol->estado) {
                                                 'pendiente' => 'bg-amber-100 text-amber-800',
                                                 'aprobada' => 'bg-blue-100 text-blue-800',
                                                 'entregada_abierta' => 'bg-purple-100 text-purple-800',
                                                 'cerrada' => 'bg-emerald-100 text-emerald-800',
                                                 'rechazada' => 'bg-red-100 text-red-800',
-                                                'sin_disponibilidad' => 'bg-gray-100 text-gray-700',
-                                                default => 'bg-gray-100 text-gray-800',
+                                                'sin_disponibilidad' => 'bg-slate-100 text-slate-700',
+                                                default => 'bg-slate-100 text-slate-800',
                                             } }}">
                                             {{ strtoupper($sol->estado) }}
                                         </span>
                                     </div>
-                                    <div class="text-xs text-gray-500 mt-1">
-                                        Solicitante: <strong class="text-gray-800">{{ $sol->solicitante->name }}</strong> ({{ $sol->solicitante->email }}) &bull;
-                                        Fecha Solicitud: {{ $sol->fecha_solicitud->format('d/m/Y H:i') }} &bull;
-                                        Requerida: <strong class="text-gray-800">{{ $sol->fecha_requerida->format('d/m/Y') }}</strong>
+                                    <div class="text-xs text-slate-500 mt-1">
+                                        Solicitante: <strong class="text-slate-800">{{ $sol->solicitante->name }}</strong> ({{ $sol->solicitante->email }}) &bull;
+                                        Fecha: {{ $sol->fecha_solicitud->format('d/m/Y H:i') }} &bull;
+                                        Requerida: <strong class="text-slate-800">{{ $sol->fecha_requerida->format('d/m/Y') }}</strong>
                                     </div>
-                                    <!-- Parámetros Clave de Despacho (Sección 3.2.2) -->
+
+                                    <!-- Tags de Ubicación / Asignatura / Hora (Formulario Nuevo) -->
                                     <div class="mt-2 flex flex-wrap items-center gap-1.5">
                                         @if($sol->hora_requerida)
                                             <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-200 text-[11px] font-bold">
@@ -711,49 +830,40 @@ new #[Layout('layouts.app')] class extends Component
                                                 <svg class="w-3 h-3 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
                                                 Taller: {{ $sol->asignatura->codigo }} - {{ $sol->asignatura->nombre }}
                                             </span>
+                                        @elseif($sol->observaciones)
+                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 text-slate-800 border border-slate-200 text-[11px] font-medium">
+                                                Actividad: {{ \Illuminate\Support\Str::limit($sol->observaciones, 45) }}
+                                            </span>
                                         @endif
                                     </div>
                                 </div>
 
-                                <!-- Botonera de Acciones según BPMN Proceso 3 -->
+                                <!-- Acción Directa: Entregar (Sin requerir aprobación intermedia) -->
                                 <div class="flex items-center gap-2">
-                                    @if($sol->estado === 'pendiente')
+                                    @php
+                                        $tienePendientesEntrega = $sol->detalles->contains(fn ($d) => (float)$d->cantidad_entregada < (float)$d->cantidad_solicitada);
+                                    @endphp
+
+                                    @if(in_array($sol->estado, ['pendiente', 'aprobada', 'entregada_abierta']) && $tienePendientesEntrega)
                                         <button
-                                            wire:click="aprobar({{ $sol->id }})"
-                                            class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition"
+                                            wire:click="abrirModalEntrega({{ $sol->id }})"
+                                            class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs"
                                         >
-                                            Aprobar
-                                        </button>
-                                        <button
-                                            wire:click="marcarSinDisponibilidad({{ $sol->id }})"
-                                            class="px-2.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-medium transition"
-                                            title="Marcar falta de existencias físicas"
-                                        >
-                                            Sin Disponibilidad
-                                        </button>
-                                        <button
-                                            wire:click="abrirModalRechazo({{ $sol->id }})"
-                                            class="px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-medium transition"
-                                        >
-                                            Rechazar
+                                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                                            </svg>
+                                            <span>Entregar</span>
                                         </button>
                                     @endif
 
-                                    @if(in_array($sol->estado, ['aprobada', 'pendiente', 'entregada_abierta']))
-                                        @php
-                                            $tienePendientesEntrega = $sol->detalles->contains(fn ($d) => (float)$d->cantidad_entregada < (float)$d->cantidad_solicitada);
-                                        @endphp
-                                        @if($tienePendientesEntrega)
-                                            <button
-                                                wire:click="abrirModalEntrega({{ $sol->id }})"
-                                                class="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
-                                            >
-                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                                                </svg>
-                                                Entregar en Mesón
-                                            </button>
-                                        @endif
+                                    @if($sol->estado === 'pendiente')
+                                        <button
+                                            wire:click="abrirModalRechazo({{ $sol->id }})"
+                                            class="px-2.5 py-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg text-xs font-medium transition"
+                                            title="Rechazar solicitud"
+                                        >
+                                            Rechazar
+                                        </button>
                                     @endif
                                 </div>
                             </div>
@@ -761,7 +871,7 @@ new #[Layout('layouts.app')] class extends Component
                             <!-- Listado de ítems de la solicitud -->
                             <div class="mt-3 overflow-x-auto">
                                 <table class="w-full text-xs text-left">
-                                    <thead class="bg-gray-50 text-gray-500 uppercase tracking-wider text-[10px]">
+                                    <thead class="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px]">
                                         <tr>
                                             <th class="py-1.5 px-3">Tipo</th>
                                             <th class="py-1.5 px-3">Ítem / Código</th>
@@ -771,7 +881,7 @@ new #[Layout('layouts.app')] class extends Component
                                             <th class="py-1.5 px-3 text-center">Estado Devolución</th>
                                         </tr>
                                     </thead>
-                                    <tbody class="divide-y divide-gray-100">
+                                    <tbody class="divide-y divide-slate-100">
                                         @foreach($sol->detalles as $det)
                                             <tr>
                                                 <td class="py-2 px-3">
@@ -780,29 +890,29 @@ new #[Layout('layouts.app')] class extends Component
                                                     @elseif($det->insumo && $det->insumo->es_retornable)
                                                         <span class="px-2 py-0.5 rounded text-[10px] bg-indigo-100 text-indigo-700 font-semibold">Insumo Retornable</span>
                                                     @else
-                                                        <span class="px-2 py-0.5 rounded text-[10px] bg-gray-100 text-gray-700 font-semibold">Insumo Consumible</span>
+                                                        <span class="px-2 py-0.5 rounded text-[10px] bg-slate-100 text-slate-700 font-semibold">Insumo Consumible</span>
                                                     @endif
                                                 </td>
-                                                <td class="py-2 px-3 font-medium text-gray-800">
+                                                <td class="py-2 px-3 font-medium text-slate-800">
                                                     {{ $det->equipo->nombre ?? $det->insumo->nombre }}
-                                                    <span class="text-gray-400 font-mono text-[11px]">({{ $det->equipo->codigo_barras ?? $det->insumo->codigo_barras }})</span>
+                                                    <span class="text-slate-400 font-mono text-[11px]">({{ $det->equipo->codigo_barras ?? $det->insumo->codigo_barras }})</span>
                                                 </td>
                                                 <td class="py-2 px-3 text-center font-bold">{{ (float)$det->cantidad_solicitada }}</td>
-                                                <td class="py-2 px-3 text-center font-bold {{ (float)$det->cantidad_entregada > 0 ? 'text-blue-600' : 'text-gray-400' }}">
+                                                <td class="py-2 px-3 text-center font-bold {{ (float)$det->cantidad_entregada > 0 ? 'text-blue-600' : 'text-slate-400' }}">
                                                     {{ (float)$det->cantidad_entregada }}
                                                 </td>
-                                                <td class="py-2 px-3 text-center font-bold {{ (float)$det->cantidad_devuelta > 0 ? 'text-emerald-600' : 'text-gray-400' }}">
+                                                <td class="py-2 px-3 text-center font-bold {{ (float)$det->cantidad_devuelta > 0 ? 'text-emerald-600' : 'text-slate-400' }}">
                                                     {{ (float)$det->cantidad_devuelta }}
                                                 </td>
                                                 <td class="py-2 px-3 text-center">
                                                     <span class="px-2 py-0.5 rounded text-[10px] font-semibold
                                                         {{ match($det->estado_devolucion) {
-                                                            'no_aplica' => 'bg-gray-100 text-gray-600',
+                                                            'no_aplica' => 'bg-slate-100 text-slate-600',
                                                             'pendiente' => 'bg-purple-100 text-purple-700',
                                                             'parcial' => 'bg-amber-100 text-amber-700',
                                                             'completa' => 'bg-emerald-100 text-emerald-700',
                                                             'con_danos' => 'bg-red-100 text-red-700',
-                                                            default => 'bg-gray-100 text-gray-600',
+                                                            default => 'bg-slate-100 text-slate-600',
                                                         } }}">
                                                         {{ $det->estado_devolucion }}
                                                     </span>
@@ -822,63 +932,74 @@ new #[Layout('layouts.app')] class extends Component
         </div>
     @endif
 
-    <!-- PESTAÑA 2: PRÉSTAMOS ACTIVOS (ESPERANDO DEVOLUCIÓN) -->
-    @if($pestanaActiva === 'activos')
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
-            <div class="mb-4">
-                <h2 class="text-base font-semibold text-gray-900">Préstamos Activos con Devolución Pendiente</h2>
-                <p class="text-xs text-gray-500">Materiales y equipos que se encuentran actualmente en poder de docentes o estudiantes.</p>
+    <!-- PESTAÑA 2: VENCIDAS (Exclusivo Alumnos) -->
+    @if($pestanaActiva === 'vencidas')
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-2xs p-4 sm:p-6">
+            <div class="mb-5">
+                <h2 class="text-sm font-bold text-slate-900">Préstamos Presenciales Vencidos</h2>
+                <span class="text-xs text-slate-500 font-normal">Préstamos de alumnos cuya hora acordada ha expirado y tienen materiales pendientes de devolución.</span>
             </div>
 
-            @php $activas = $this->entregasActivas(); @endphp
+            @php $vencidasPaginadas = $this->prestamosVencidos(); @endphp
 
-            @if($activas->isEmpty())
-                <div class="text-center py-12 text-gray-400 text-sm">
-                    No hay préstamos activos con unidades pendientes de devolución.
+            @if($vencidasPaginadas->isEmpty())
+                <div class="text-center py-12 text-slate-400 text-xs">
+                    No hay préstamos presenciales con hora límite vencida en este momento.
                 </div>
             @else
                 <div class="space-y-4">
-                    @foreach($activas as $ent)
-                        <div class="border border-purple-200 bg-purple-50/20 rounded-xl p-4">
-                            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-purple-100 pb-3">
+                    @foreach($vencidasPaginadas as $ent)
+                        <div class="border border-red-200 bg-red-50/20 rounded-xl p-4 shadow-2xs">
+                            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-red-100 pb-3">
                                 <div>
                                     <div class="flex items-center gap-2">
-                                        <span class="font-bold text-gray-900 text-sm">Entrega #ENT-{{ str_pad($ent->id, 5, '0', STR_PAD_LEFT) }}</span>
-                                        <span class="text-xs px-2 py-0.5 rounded bg-purple-100 text-purple-800 font-semibold">
-                                            Receptor: {{ $ent->receptor_nombre }} ({{ ucfirst($ent->receptor_tipo) }})
+                                        <span class="font-bold text-slate-900 text-sm">#ENT-{{ str_pad($ent->id, 5, '0', STR_PAD_LEFT) }}</span>
+                                        <span class="text-xs px-2.5 py-0.5 rounded-full font-bold bg-red-100 text-red-800 flex items-center gap-1">
+                                            <svg class="w-3.5 h-3.5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                            VENCIDO (Límite: {{ \Carbon\Carbon::parse($ent->hora_devolucion_acordada)->format('H:i') }} hrs)
                                         </span>
                                     </div>
-                                    <div class="text-xs text-gray-500 mt-1">
-                                        Fecha de Entrega: {{ $ent->fecha_entrega->format('d/m/Y H:i') }} &bull;
-                                        Despachado por: {{ $ent->entregador->name }} &bull;
-                                        Solicitud: #SOL-{{ str_pad($ent->solicitud_id, 5, '0', STR_PAD_LEFT) }}
+                                    <div class="text-xs text-slate-600 mt-1 flex flex-wrap items-center gap-2">
+                                        <span>Alumno: <strong class="text-slate-900">{{ $ent->receptor_nombre }}</strong></span>
+                                        @if($ent->receptor_credencial_rut)
+                                            <span>&bull; RUT: <strong class="font-mono text-slate-800">{{ $ent->receptor_credencial_rut }}</strong></span>
+                                        @endif
+                                        @if($ent->credencial_verificada)
+                                            <span class="px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 font-bold text-[10px]">Credencial física retenida</span>
+                                        @endif
+                                        <span>&bull; Entregado: {{ $ent->fecha_entrega->format('d/m/Y H:i') }}</span>
                                     </div>
                                 </div>
+
                                 <button
                                     wire:click="abrirModalDevolucion({{ $ent->id }})"
-                                    class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition shadow-xs flex items-center gap-1.5"
+                                    class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition shadow-2xs flex items-center justify-center gap-1.5 shrink-0"
                                 >
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
                                     </svg>
-                                    Registrar Devolución
+                                    <span>Recibir Devolución</span>
                                 </button>
                             </div>
 
-                            <!-- Listado de ítems entregados y pendientes -->
+                            <!-- Ítems Pendientes -->
                             <div class="mt-3">
-                                <h4 class="text-xs font-bold text-gray-700 mb-1.5">Ítems Vinculados al Préstamo:</h4>
-                                <ul class="text-xs space-y-1 text-gray-600">
+                                <ul class="text-xs space-y-1">
                                     @foreach($ent->solicitud->detalles as $det)
-                                        @if($det->equipo_id !== null || ($det->insumo && $det->insumo->es_retornable))
-                                            <li class="flex items-center justify-between p-2 rounded bg-white border border-gray-100">
+                                        @php
+                                            $entregada = (float)$det->cantidad_entregada;
+                                            $devuelta = (float)$det->cantidad_devuelta;
+                                            $pendiente = $entregada - $devuelta;
+                                        @endphp
+                                        @if($pendiente > 0 && ($det->equipo_id !== null || ($det->insumo && $det->insumo->es_retornable)))
+                                            <li class="flex items-center justify-between p-2 rounded-lg bg-white border border-red-100">
                                                 <div>
-                                                    <span class="font-medium text-gray-900">{{ $det->equipo->nombre ?? $det->insumo->nombre }}</span>
-                                                    <span class="text-gray-400 font-mono text-[11px]">({{ $det->equipo->codigo_barras ?? $det->insumo->codigo_barras }})</span>
+                                                    <span class="font-semibold text-slate-900">{{ $det->equipo->nombre ?? $det->insumo->nombre }}</span>
+                                                    <span class="text-slate-400 font-mono text-[11px]">({{ $det->equipo->codigo_barras ?? $det->insumo->codigo_barras }})</span>
                                                 </div>
                                                 <div class="text-right">
-                                                    <span class="text-gray-500">Entregado: {{ (float)$det->cantidad_entregada }} &bull; Devuelto: {{ (float)$det->cantidad_devuelta }}</span>
-                                                    <span class="ml-2 font-bold text-purple-700">Pendiente: {{ (float)$det->cantidad_entregada - (float)$det->cantidad_devuelta }}</span>
+                                                    <span class="text-slate-500">Pendiente: </span>
+                                                    <span class="font-bold text-red-700">{{ $pendiente }} unidad(es)</span>
                                                 </div>
                                             </li>
                                         @endif
@@ -888,28 +1009,32 @@ new #[Layout('layouts.app')] class extends Component
                         </div>
                     @endforeach
                 </div>
+
+                <div class="mt-4">
+                    {{ $vencidasPaginadas->links() }}
+                </div>
             @endif
         </div>
     @endif
 
-    <!-- PESTAÑA 3: TRAZABILIDAD HISTÓRICA -->
+    <!-- PESTAÑA 3: HISTORIAL -->
     @if($pestanaActiva === 'historial')
-        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
-            <div class="mb-4">
-                <h2 class="text-base font-semibold text-gray-900">Historial de Entregas y Devoluciones (Auditoría KPI-03)</h2>
-                <p class="text-xs text-gray-500">Registro inmutable de movimientos, receptores y encargados de pañol.</p>
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-2xs p-4 sm:p-6">
+            <div class="mb-5">
+                <h2 class="text-sm font-bold text-slate-900">Historial de Entregas y Devoluciones</h2>
+                <span class="text-xs text-slate-500 font-normal">Auditoría completa de movimientos, receptores y encargados de pañol.</span>
             </div>
 
             @php $historial = $this->historialEntregas(); @endphp
 
             @if($historial->isEmpty())
-                <div class="text-center py-12 text-gray-400 text-sm">
-                    No hay registros históricos de entregas.
+                <div class="text-center py-12 text-slate-400 text-xs">
+                    No hay registros históricos disponibles.
                 </div>
             @else
                 <div class="overflow-x-auto">
                     <table class="w-full text-xs text-left">
-                        <thead class="bg-gray-50 text-gray-600 uppercase tracking-wider text-[10px]">
+                        <thead class="bg-slate-50 text-slate-600 uppercase tracking-wider text-[10px]">
                             <tr>
                                 <th class="py-2 px-3">Folio Entrega</th>
                                 <th class="py-2 px-3">Fecha y Hora</th>
@@ -919,21 +1044,21 @@ new #[Layout('layouts.app')] class extends Component
                                 <th class="py-2 px-3">Devoluciones</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-gray-100">
+                        <tbody class="divide-y divide-slate-100">
                             @foreach($historial as $h)
                                 <tr>
-                                    <td class="py-2 px-3 font-bold text-gray-900">#ENT-{{ str_pad($h->id, 5, '0', STR_PAD_LEFT) }}</td>
-                                    <td class="py-2 px-3 text-gray-600">{{ $h->fecha_entrega->format('d/m/Y H:i') }}</td>
-                                    <td class="py-2 px-3 font-semibold text-gray-800">{{ $h->receptor_nombre }}</td>
+                                    <td class="py-2 px-3 font-bold text-slate-900">#ENT-{{ str_pad($h->id, 5, '0', STR_PAD_LEFT) }}</td>
+                                    <td class="py-2 px-3 text-slate-600">{{ $h->fecha_entrega->format('d/m/Y H:i') }}</td>
+                                    <td class="py-2 px-3 font-semibold text-slate-800">{{ $h->receptor_nombre }}</td>
                                     <td class="py-2 px-3">
                                         <span class="px-2 py-0.5 rounded text-[10px] font-semibold {{ $h->receptor_tipo === 'docente' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700' }}">
                                             {{ ucfirst($h->receptor_tipo) }}
                                         </span>
                                     </td>
-                                    <td class="py-2 px-3 text-gray-600">{{ $h->entregador->name }}</td>
+                                    <td class="py-2 px-3 text-slate-600">{{ $h->entregador->name }}</td>
                                     <td class="py-2 px-3">
                                         @if($h->devoluciones->isEmpty())
-                                            <span class="text-gray-400 italic">Sin devoluciones</span>
+                                            <span class="text-slate-400 italic">Sin devoluciones</span>
                                         @else
                                             <span class="text-emerald-600 font-semibold">{{ $h->devoluciones->count() }} registrada(s)</span>
                                         @endif
@@ -955,11 +1080,11 @@ new #[Layout('layouts.app')] class extends Component
         <div class="fixed inset-0 z-50 overflow-y-auto bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
             <div class="bg-white rounded-2xl shadow-xl w-full max-w-xl overflow-hidden">
                 <div class="px-5 py-4 bg-emerald-700 text-white flex items-center justify-between">
-                    <h3 class="text-base font-bold flex items-center gap-2">
+                    <h3 class="text-sm font-bold flex items-center gap-2">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
                         </svg>
-                        Confirmar Entrega de Materiales en Ventanilla
+                        Confirmar Entrega de Materiales
                     </h3>
                     <button wire:click="$set('mostrarModalEntrega', false)" class="text-white/80 hover:text-white">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -969,22 +1094,15 @@ new #[Layout('layouts.app')] class extends Component
                 </div>
 
                 <div class="p-5 space-y-4 max-h-[80vh] overflow-y-auto text-xs">
-                    <!-- Datos del Receptor (Regla de negocio: alumnos sin cuenta) -->
-                    <div class="p-3 bg-amber-50 rounded-lg border border-amber-200">
-                        <span class="font-bold text-amber-900 block mb-1">Registro de Receptor (Trazabilidad estricta):</span>
-                        <p class="text-[11px] text-amber-700">
-                            Los estudiantes retiran material en mesón sin necesidad de cuentas de acceso en el sistema. Ingrese nombre completo y RUT/identificación.
-                        </p>
-                    </div>
-
+                    <!-- Datos del Receptor -->
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                            <label class="block font-semibold text-gray-700 mb-1">Nombre Completo del Receptor <span class="text-red-500">*</span></label>
+                            <label class="block font-semibold text-slate-700 mb-1">Nombre Completo del Receptor <span class="text-red-500">*</span></label>
                             <input
                                 type="text"
                                 wire:model="receptorNombre"
                                 placeholder="Ej. Juan Pérez González"
-                                class="w-full text-xs border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500"
+                                class="w-full text-xs border-slate-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500"
                             />
                             @error('receptorNombre')
                                 <p class="text-red-600 mt-1">{{ $message }}</p>
@@ -992,10 +1110,10 @@ new #[Layout('layouts.app')] class extends Component
                         </div>
 
                         <div>
-                            <label class="block font-semibold text-gray-700 mb-1">Tipo de Receptor <span class="text-red-500">*</span></label>
+                            <label class="block font-semibold text-slate-700 mb-1">Tipo de Receptor <span class="text-red-500">*</span></label>
                             <select
                                 wire:model.live="receptorTipo"
-                                class="w-full text-xs border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500"
+                                class="w-full text-xs border-slate-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500"
                             >
                                 <option value="docente">Docente Institucional</option>
                                 <option value="estudiante">Estudiante en Práctica / Taller</option>
@@ -1007,28 +1125,28 @@ new #[Layout('layouts.app')] class extends Component
                     </div>
 
                     @if($receptorTipo === 'estudiante')
-                        <div class="p-3 bg-red-50/70 border border-red-200 rounded-lg space-y-3">
+                        <div class="p-3 bg-red-50/70 border border-red-200 rounded-xl space-y-3">
                             <div class="font-bold text-red-900 text-xs flex items-center gap-1.5">
                                 <svg class="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2"/></svg>
-                                Validación de Credencial y Compromiso Horario del Estudiante (CP-26)
+                                Validación de Credencial y Compromiso Horario del Estudiante
                             </div>
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
-                                    <label class="block font-semibold text-gray-700 mb-1">RUT o N° Credencial del Estudiante <span class="text-red-500">*</span></label>
+                                    <label class="block font-semibold text-slate-700 mb-1">RUT o N° Credencial del Estudiante <span class="text-red-500">*</span></label>
                                     <input
                                         type="text"
                                         wire:model="receptorCredencialRut"
                                         placeholder="Ej. 20.123.456-7"
-                                        class="w-full text-xs border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500"
+                                        class="w-full text-xs border-slate-300 rounded-lg focus:ring-red-500 focus:border-red-500"
                                     />
                                     @error('receptorCredencialRut') <p class="text-red-600 mt-1">{{ $message }}</p> @enderror
                                 </div>
                                 <div>
-                                    <label class="block font-semibold text-gray-700 mb-1">Hora Límite de Devolución Acordada <span class="text-red-500">*</span></label>
+                                    <label class="block font-semibold text-slate-700 mb-1">Hora Límite de Devolución Acordada <span class="text-red-500">*</span></label>
                                     <input
                                         type="time"
                                         wire:model="horaDevolucionAcordada"
-                                        class="w-full text-xs border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500"
+                                        class="w-full text-xs border-slate-300 rounded-lg focus:ring-red-500 focus:border-red-500"
                                     />
                                     @error('horaDevolucionAcordada') <p class="text-red-600 mt-1">{{ $message }}</p> @enderror
                                 </div>
@@ -1040,8 +1158,8 @@ new #[Layout('layouts.app')] class extends Component
                                         wire:model="credencialVerificada"
                                         class="rounded text-red-600 focus:ring-red-600"
                                     />
-                                    <span class="text-xs font-semibold text-gray-800">
-                                        Confirmo haber retenido / verificado físicamente la credencial institucional del estudiante en mesón <span class="text-red-500">*</span>
+                                    <span class="text-xs font-semibold text-slate-800">
+                                        Confirmo haber verificado y retenido físicamente la credencial institucional del estudiante en mesón <span class="text-red-500">*</span>
                                     </span>
                                 </label>
                                 @error('credencialVerificada') <p class="text-red-600 mt-1">{{ $message }}</p> @enderror
@@ -1051,35 +1169,35 @@ new #[Layout('layouts.app')] class extends Component
 
                     <!-- Selección de Ítems a Entregar -->
                     <div>
-                        <label class="block font-semibold text-gray-700 mb-1.5">Ítems a Entregar en este Despacho:</label>
+                        <label class="block font-semibold text-slate-700 mb-1.5">Ítems a Entregar en este Despacho:</label>
                         @php
                             $solicitudModal = SolicitudMaterial::with('detalles.insumo', 'detalles.equipo')->find($solicitudEntregaId);
                         @endphp
                         @if($solicitudModal)
-                            <div class="space-y-2 border border-gray-200 rounded-lg p-3 bg-gray-50/50">
+                            <div class="space-y-2 border border-slate-200 rounded-xl p-3 bg-slate-50/50">
                                 @foreach($solicitudModal->detalles as $det)
                                     @php
                                         $pendiente = (float)$det->cantidad_solicitada - (float)$det->cantidad_entregada;
                                     @endphp
                                     @if($pendiente > 0)
-                                        <label class="flex items-center justify-between p-2 rounded bg-white border border-gray-200 cursor-pointer hover:bg-gray-50">
+                                        <label class="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200 cursor-pointer hover:bg-slate-50">
                                             <div class="flex items-center gap-2">
                                                 <input
                                                     type="checkbox"
                                                     wire:model="detallesSeleccionadosIds"
                                                     value="{{ $det->id }}"
-                                                    class="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                                                    class="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
                                                 />
                                                 <div>
-                                                    <span class="font-medium text-gray-900">{{ $det->equipo->nombre ?? $det->insumo->nombre }}</span>
-                                                    <span class="text-gray-400 font-mono text-[10px]">({{ $det->equipo->codigo_barras ?? $det->insumo->codigo_barras }})</span>
-                                                    <div class="text-[10px] text-gray-500">
+                                                    <span class="font-medium text-slate-900">{{ $det->equipo->nombre ?? $det->insumo->nombre }}</span>
+                                                    <span class="text-slate-400 font-mono text-[10px]">({{ $det->equipo->codigo_barras ?? $det->insumo->codigo_barras }})</span>
+                                                    <div class="text-[10px] text-slate-500">
                                                         {{ $det->equipo ? 'Equipo Retornable' : ($det->insumo->es_retornable ? 'Insumo Retornable' : 'Insumo Consumible (Salida definitiva)') }}
                                                     </div>
                                                 </div>
                                             </div>
                                             <div class="text-right">
-                                                <span class="font-bold text-gray-800">{{ $pendiente }} un.</span>
+                                                <span class="font-bold text-slate-800">{{ $pendiente }} un.</span>
                                             </div>
                                         </label>
                                     @endif
@@ -1089,15 +1207,14 @@ new #[Layout('layouts.app')] class extends Component
                     </div>
                 </div>
 
-                <div class="px-5 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-2">
+                <div class="px-5 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
                     <button
                         type="button"
                         wire:click="$set('mostrarModalEntrega', false)"
-                        class="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-lg transition"
+                        class="px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-lg transition"
                     >
                         Cancelar
                     </button>
-                    <!-- Protección contra doble clic / Idempotencia en cliente y servidor (CP-22) -->
                     <button
                         type="button"
                         wire:click="confirmarEntrega"
@@ -1117,7 +1234,7 @@ new #[Layout('layouts.app')] class extends Component
         <div class="fixed inset-0 z-50 overflow-y-auto bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
             <div class="bg-white rounded-2xl shadow-xl w-full max-w-xl overflow-hidden">
                 <div class="px-5 py-4 bg-indigo-700 text-white flex items-center justify-between">
-                    <h3 class="text-base font-bold flex items-center gap-2">
+                    <h3 class="text-sm font-bold flex items-center gap-2">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
                         </svg>
@@ -1131,24 +1248,23 @@ new #[Layout('layouts.app')] class extends Component
                 </div>
 
                 <div class="p-5 space-y-4 max-h-[80vh] overflow-y-auto text-xs">
-                    <p class="text-gray-500">
-                        Indique las cantidades devueltas y el estado físico de cada ítem. Si presenta daños, el equipo se apartará automáticamente a estado "No Disponible" y se abrirá una incidencia técnica (CP-21).
+                    <p class="text-slate-500">
+                        Indique las cantidades devueltas y el estado físico de cada ítem. Si presenta daños, el equipo se apartará automáticamente a estado "No Disponible" y se abrirá una incidencia técnica.
                     </p>
 
                     <div class="space-y-3">
                         @foreach($itemsDevolucionForm as $detId => $item)
-                            <div class="p-3 rounded-lg border border-gray-200 bg-gray-50/50 space-y-2">
-                                <div class="flex items-center justify-between font-semibold text-gray-900">
+                            <div class="p-3 rounded-xl border border-slate-200 bg-slate-50/50 space-y-2">
+                                <div class="flex items-center justify-between font-semibold text-slate-900">
                                     <span>{{ $item['nombre'] }}</span>
-                                    <span class="text-gray-500 text-[11px]">Máx pendiente: {{ $item['max'] }}</span>
+                                    <span class="text-slate-500 text-[11px]">Máx pendiente: {{ $item['max'] }}</span>
                                 </div>
 
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                    <!-- Cantidad -->
                                     <div>
-                                        <label class="block text-[11px] font-medium text-gray-700 mb-0.5">Cantidad a Devolver:</label>
+                                        <label class="block text-[11px] font-medium text-slate-700 mb-0.5">Cantidad a Devolver:</label>
                                         @if($item['es_equipo'])
-                                            <input type="text" disabled value="1 unidad" class="w-full text-xs py-1 px-2 bg-gray-100 border-gray-300 rounded text-gray-600 font-semibold" />
+                                            <input type="text" disabled value="1 unidad" class="w-full text-xs py-1 px-2 bg-slate-100 border-slate-300 rounded text-slate-600 font-semibold" />
                                         @else
                                             <input
                                                 type="number"
@@ -1156,17 +1272,16 @@ new #[Layout('layouts.app')] class extends Component
                                                 min="0"
                                                 max="{{ $item['max'] }}"
                                                 wire:model="itemsDevolucionForm.{{ $detId }}.cantidad"
-                                                class="w-full text-xs py-1 px-2 border-gray-300 rounded"
+                                                class="w-full text-xs py-1 px-2 border-slate-300 rounded"
                                             />
                                         @endif
                                     </div>
 
-                                    <!-- Estado / Conformidad -->
                                     <div>
-                                        <label class="block text-[11px] font-medium text-gray-700 mb-0.5">Estado Físico:</label>
+                                        <label class="block text-[11px] font-medium text-slate-700 mb-0.5">Estado Físico:</label>
                                         <select
                                             wire:model.live="itemsDevolucionForm.{{ $detId }}.conforme"
-                                            class="w-full text-xs py-1 px-2 border-gray-300 rounded {{ ! $item['conforme'] ? 'bg-red-50 text-red-800 font-bold border-red-300' : 'bg-emerald-50 text-emerald-800 font-bold border-emerald-300' }}"
+                                            class="w-full text-xs py-1 px-2 border-slate-300 rounded {{ ! $item['conforme'] ? 'bg-red-50 text-red-800 font-bold border-red-300' : 'bg-emerald-50 text-emerald-800 font-bold border-emerald-300' }}"
                                         >
                                             <option value="1">Buen Estado (Conforme)</option>
                                             <option value="0">Con Daños / Falla Física</option>
@@ -1174,9 +1289,8 @@ new #[Layout('layouts.app')] class extends Component
                                     </div>
                                 </div>
 
-                                <!-- Detalle del daño si no está conforme -->
                                 @if(! $item['conforme'])
-                                    <div class="mt-2 p-2 bg-red-50 rounded border border-red-200">
+                                    <div class="mt-2 p-2 bg-red-50 rounded-lg border border-red-200">
                                         <label class="block text-[11px] font-bold text-red-800 mb-1">Descripción del Desperfecto o Daño Observado:</label>
                                         <input
                                             type="text"
@@ -1190,23 +1304,22 @@ new #[Layout('layouts.app')] class extends Component
                         @endforeach
                     </div>
 
-                    <!-- Observaciones Generales -->
                     <div>
-                        <label class="block font-semibold text-gray-700 mb-1">Observaciones Generales de la Devolución:</label>
+                        <label class="block font-semibold text-slate-700 mb-1">Observaciones Generales de la Devolución:</label>
                         <textarea
                             wire:model="observacionesDevolucion"
                             rows="2"
                             placeholder="Comentarios adicionales sobre la recepción en pañol..."
-                            class="w-full text-xs border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                            class="w-full text-xs border-slate-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
                         ></textarea>
                     </div>
                 </div>
 
-                <div class="px-5 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-2">
+                <div class="px-5 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
                     <button
                         type="button"
                         wire:click="$set('mostrarModalDevolucion', false)"
-                        class="px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100 rounded-lg transition"
+                        class="px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-lg transition"
                     >
                         Cancelar
                     </button>
@@ -1229,7 +1342,7 @@ new #[Layout('layouts.app')] class extends Component
         <div class="fixed inset-0 z-50 overflow-y-auto bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
             <div class="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
                 <div class="px-5 py-4 bg-red-600 text-white flex items-center justify-between">
-                    <h3 class="text-base font-bold">Rechazar Solicitud #SOL-{{ $solicitudRechazoId }}</h3>
+                    <h3 class="text-sm font-bold">Rechazar Solicitud #SOL-{{ $solicitudRechazoId }}</h3>
                     <button wire:click="$set('mostrarModalRechazo', false)" class="text-white/80 hover:text-white">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
@@ -1237,16 +1350,16 @@ new #[Layout('layouts.app')] class extends Component
                     </button>
                 </div>
                 <div class="p-5 space-y-3 text-xs">
-                    <label class="block font-semibold text-gray-700">Motivo del Rechazo:</label>
+                    <label class="block font-semibold text-slate-700">Motivo del Rechazo:</label>
                     <textarea
                         wire:model="motivoRechazo"
                         rows="3"
                         placeholder="Indique el motivo por el cual no se puede atender la solicitud..."
-                        class="w-full text-xs border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500"
+                        class="w-full text-xs border-slate-300 rounded-lg focus:ring-red-500 focus:border-red-500"
                     ></textarea>
                 </div>
-                <div class="px-5 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-2">
-                    <button wire:click="$set('mostrarModalRechazo', false)" class="px-3 py-1.5 text-xs text-gray-600">Cancelar</button>
+                <div class="px-5 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
+                    <button wire:click="$set('mostrarModalRechazo', false)" class="px-3 py-1.5 text-xs text-slate-600">Cancelar</button>
                     <button wire:click="confirmarRechazo" class="px-4 py-1.5 bg-red-600 text-white font-bold rounded-lg text-xs hover:bg-red-700">Confirmar Rechazo</button>
                 </div>
             </div>
@@ -1258,7 +1371,7 @@ new #[Layout('layouts.app')] class extends Component
         <div class="fixed inset-0 z-50 overflow-y-auto bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
             <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
                 <div class="px-5 py-4 bg-red-700 text-white flex items-center justify-between">
-                    <h3 class="text-base font-bold flex items-center gap-2">
+                    <h3 class="text-sm font-bold flex items-center gap-2">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z"/></svg>
                         <span>Atención de Ventanilla: Préstamo Presencial a Estudiante</span>
                     </h3>
@@ -1268,7 +1381,6 @@ new #[Layout('layouts.app')] class extends Component
                 </div>
 
                 <div class="p-5 space-y-5 max-h-[80vh] overflow-y-auto text-xs">
-                    <!-- Mensaje de Error / Bloqueo en el Modal si ocurre una excepción o validación fallida -->
                     @if($errorModalPresencial)
                         <div class="p-3 bg-red-50 border-l-4 border-red-600 rounded-r-xl text-red-900 flex items-start justify-between gap-3 shadow-xs animate-in fade-in duration-150">
                             <div class="flex items-start gap-2.5">
@@ -1284,7 +1396,6 @@ new #[Layout('layouts.app')] class extends Component
                         </div>
                     @endif
 
-                    <!-- Instrucción / Aviso normativo -->
                     <div class="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 flex items-start gap-2.5">
                         <svg class="w-5 h-5 text-amber-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                         <div class="space-y-0.5">
@@ -1297,14 +1408,14 @@ new #[Layout('layouts.app')] class extends Component
 
                     <!-- SECCIÓN 1: Datos del Estudiante Receptor -->
                     <div class="border border-slate-200 rounded-xl p-4 bg-slate-50/60 space-y-3">
-                        <h4 class="font-bold text-gray-800 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                        <h4 class="font-bold text-slate-800 text-xs uppercase tracking-wider flex items-center gap-1.5">
                             <span class="w-2 h-2 rounded-full bg-red-600"></span>
                             1. Identificación del Estudiante y Retención de Credencial
                         </h4>
 
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
-                                <label class="block font-semibold text-gray-700 mb-1">Nombre Completo del Estudiante <span class="text-red-500">*</span></label>
+                                <label class="block font-semibold text-slate-700 mb-1">Nombre Completo del Estudiante <span class="text-red-500">*</span></label>
                                 <input
                                     type="text"
                                     wire:model="presencialNombre"
@@ -1315,7 +1426,7 @@ new #[Layout('layouts.app')] class extends Component
                             </div>
 
                             <div>
-                                <label class="block font-semibold text-gray-700 mb-1">RUT / Credencial del Estudiante <span class="text-red-500">*</span></label>
+                                <label class="block font-semibold text-slate-700 mb-1">RUT / Credencial del Estudiante <span class="text-red-500">*</span></label>
                                 <input
                                     type="text"
                                     wire:model="presencialRut"
@@ -1326,7 +1437,6 @@ new #[Layout('layouts.app')] class extends Component
                             </div>
                         </div>
 
-                        <!-- Checkbox Obligatorio de Verificación de Credencial Física -->
                         <div class="p-3 bg-red-50 border border-red-200 rounded-lg">
                             <label class="flex items-start gap-2.5 cursor-pointer">
                                 <input
@@ -1343,7 +1453,7 @@ new #[Layout('layouts.app')] class extends Component
 
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
-                                <label class="block font-semibold text-gray-700 mb-1">Hora Acordada de Devolución <span class="text-red-500">*</span></label>
+                                <label class="block font-semibold text-slate-700 mb-1">Hora Acordada de Devolución <span class="text-red-500">*</span></label>
                                 <input
                                     type="time"
                                     wire:model="presencialHoraDevolucion"
@@ -1353,7 +1463,7 @@ new #[Layout('layouts.app')] class extends Component
                             </div>
 
                             <div>
-                                <label class="block font-semibold text-gray-700 mb-1">Laboratorio o Taller de Uso</label>
+                                <label class="block font-semibold text-slate-700 mb-1">Laboratorio o Taller de Uso</label>
                                 <select
                                     wire:model="presencialUbicacionId"
                                     class="w-full text-xs border-slate-300 rounded-lg focus:ring-red-600 focus:border-red-600"
@@ -1368,7 +1478,7 @@ new #[Layout('layouts.app')] class extends Component
 
                     <!-- SECCIÓN 2: Selección y Escaneo de Materiales -->
                     <div class="border border-slate-200 rounded-xl p-4 bg-slate-50/60 space-y-3">
-                        <h4 class="font-bold text-gray-800 text-xs uppercase tracking-wider flex items-center justify-between">
+                        <h4 class="font-bold text-slate-800 text-xs uppercase tracking-wider flex items-center justify-between">
                             <span class="flex items-center gap-1.5">
                                 <span class="w-2 h-2 rounded-full bg-red-600"></span>
                                 2. Materiales a Entregar al Estudiante
@@ -1376,7 +1486,6 @@ new #[Layout('layouts.app')] class extends Component
                             <span class="text-[11px] font-semibold text-slate-500">{{ count($presencialItems) }} ítem(s) agregado(s)</span>
                         </h4>
 
-                        <!-- Buscador / Catálogo rápido -->
                         <div class="relative">
                             <input
                                 type="text"
@@ -1387,14 +1496,13 @@ new #[Layout('layouts.app')] class extends Component
                             <svg class="w-4 h-4 text-slate-400 absolute left-2.5 top-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                         </div>
 
-                        <!-- Resultados sugeridos -->
                         @php $cat = $this->catalogoDisponiblePresencial(); @endphp
                         @if($cat['equipos']->isNotEmpty() || $cat['insumos']->isNotEmpty())
                             <div class="border border-slate-200 rounded-lg bg-white p-2 max-h-40 overflow-y-auto divide-y divide-slate-100 shadow-2xs">
                                 @foreach($cat['equipos'] as $eq)
                                     <div class="py-1.5 px-2 flex items-center justify-between hover:bg-slate-50 text-xs">
                                         <div class="flex-1 min-w-0 pr-2">
-                                            <span class="font-semibold text-gray-800">{{ $eq->nombre }}</span>
+                                            <span class="font-semibold text-slate-800">{{ $eq->nombre }}</span>
                                             <span class="text-slate-400 text-[10px] ml-1">({{ $eq->codigo_barras }} · Serie: {{ $eq->numero_serie }})</span>
                                             @if($eq->bloqueado_para_estudiante)
                                                 <span class="text-[9px] bg-amber-100 text-amber-800 border border-amber-300 px-1.5 py-0.5 rounded font-bold ml-1">
@@ -1419,7 +1527,7 @@ new #[Layout('layouts.app')] class extends Component
                                 @foreach($cat['insumos'] as $ins)
                                     <div class="py-1.5 px-2 flex items-center justify-between hover:bg-slate-50 text-xs">
                                         <div class="flex-1 min-w-0 pr-2">
-                                            <span class="font-semibold text-gray-800">{{ $ins->nombre }}</span>
+                                            <span class="font-semibold text-slate-800">{{ $ins->nombre }}</span>
                                             <span class="text-slate-400 text-[10px] ml-1">({{ $ins->codigo_barras }} · Stock: {{ $ins->stock_actual }} {{ $ins->unidad }})</span>
                                             <span class="text-[9px] px-1 py-0.5 rounded {{ $ins->es_retornable ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-700' }}">
                                                 {{ $ins->es_retornable ? 'Retornable' : 'Consumible' }}
@@ -1442,10 +1550,9 @@ new #[Layout('layouts.app')] class extends Component
                             </div>
                         @endif
 
-                        <!-- Lista de Ítems en el Mesón -->
                         @if(empty($presencialItems))
                             <div class="p-3 border-2 border-dashed border-slate-300 rounded-lg text-center text-slate-400 text-xs">
-                                No hay materiales agregados. Busque o escanee arriba y haga clic en "+ Agregar".
+                                No hay materiales agregados. Busque arriba y haga clic en "+ Agregar".
                             </div>
                         @else
                             <div class="border border-slate-200 rounded-lg bg-white overflow-hidden shadow-2xs">
@@ -1461,7 +1568,7 @@ new #[Layout('layouts.app')] class extends Component
                                     <tbody class="divide-y divide-slate-100">
                                         @foreach($presencialItems as $idx => $it)
                                             <tr>
-                                                <td class="py-2 px-3 font-semibold text-gray-800">
+                                                <td class="py-2 px-3 font-semibold text-slate-800">
                                                     {{ $it['nombre'] }}
                                                     <span class="text-[10px] block text-slate-400">
                                                         {{ $it['tipo'] === 'equipo' ? 'Equipo retornable' : ($it['es_retornable'] ? 'Insumo retornable' : 'Insumo consumible') }}
@@ -1499,19 +1606,17 @@ new #[Layout('layouts.app')] class extends Component
                         @error('presencialItems') <p class="text-[11px] text-red-600 font-semibold">{{ $message }}</p> @enderror
                     </div>
 
-                    <!-- Observaciones opcionales -->
                     <div>
-                        <label class="block font-semibold text-gray-700 mb-1">Observaciones de Entrega (Opcional)</label>
+                        <label class="block font-semibold text-slate-700 mb-1">Observaciones de Entrega (Opcional)</label>
                         <textarea
                             wire:model="presencialObservaciones"
                             rows="2"
-                            placeholder="Ej: Material prestado para taller práctico de la tarde..."
+                            placeholder="Ej: Material prestado para taller práctico..."
                             class="w-full text-xs border-slate-300 rounded-lg focus:ring-red-600 focus:border-red-600"
                         ></textarea>
                     </div>
                 </div>
 
-                <!-- Footer Acciones -->
                 <div class="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-2.5">
                     <button
                         type="button"

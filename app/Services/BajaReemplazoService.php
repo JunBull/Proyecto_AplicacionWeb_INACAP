@@ -17,8 +17,8 @@ class BajaReemplazoService
     /**
      * Registra una propuesta formal de baja o reemplazo con sustento técnico-económico y respaldos adjuntos (CP-07).
      *
-     * @param 'baja'|'reemplazo' $tipo
-     * @param array<int, UploadedFile> $documentosAdjuntos
+     * @param  'baja'|'reemplazo'  $tipo
+     * @param  array<int, UploadedFile>  $documentosAdjuntos
      */
     public function proponerBajaOReemplazo(
         Equipo $equipo,
@@ -107,7 +107,7 @@ class BajaReemplazoService
                 'estado' => $nuevoEstado,
                 'aprobada_por' => $administrador->id,
                 'motivo' => $resolucionObservaciones
-                    ? $propuesta->motivo . "\n\n[Resolución Administrador " . now()->toDateTimeString() . "]: " . trim($resolucionObservaciones)
+                    ? $propuesta->motivo."\n\n[Resolución Administrador ".now()->toDateTimeString().']: '.trim($resolucionObservaciones)
                     : $propuesta->motivo,
             ]);
 

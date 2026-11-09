@@ -15,8 +15,11 @@ class CasoPruebaCP14Test extends TestCase
     use RefreshDatabase;
 
     protected Carrera $carrera;
+
     protected Ubicacion $ubicacion;
+
     protected User $panolero;
+
     protected InventarioService $inventarioService;
 
     protected function setUp(): void

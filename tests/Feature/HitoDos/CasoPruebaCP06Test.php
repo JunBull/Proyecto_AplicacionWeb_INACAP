@@ -17,10 +17,15 @@ class CasoPruebaCP06Test extends TestCase
     use RefreshDatabase;
 
     protected Carrera $carrera;
+
     protected Ubicacion $ubicacion;
+
     protected User $docente;
+
     protected User $panolero;
+
     protected EquipoService $equipoService;
+
     protected FallaService $fallaService;
 
     protected function setUp(): void

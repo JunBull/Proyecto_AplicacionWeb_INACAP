@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Jobs\EnviarReporteIncidenciaJob;
+use App\Models\BajaReemplazo;
 use App\Models\Documento;
 use App\Models\Equipo;
 use App\Models\Falla;
@@ -175,11 +176,50 @@ class FallaService
             $equipo = $falla->equipo;
 
             if ($nuevoEstado === 'resuelta') {
-                $equipo->update(['estado' => 'disponible']);
+                if ($equipo && $equipo->estado !== 'dado_de_baja') {
+                    $equipo->update(['estado' => 'disponible']);
+                }
             } elseif ($nuevoEstado === 'derivada_a_baja') {
-                $equipo->update(['estado' => 'pendiente_resolucion']);
+                if ($equipo && $equipo->estado !== 'dado_de_baja') {
+                    $equipo->update(['estado' => 'pendiente_resolucion']);
+
+                    // Registrar propuesta formal en bajas_reemplazos si no existe una activa para esta falla
+                    if (! BajaReemplazo::where('falla_id', $falla->id)->exists()) {
+                        $motivo = $observacionesTecnicas
+                            ? trim($observacionesTecnicas)
+                            : 'Equipo derivado a baja técnica por inviabilidad económica o daño irreparable detectado.';
+
+                        $propuesta = BajaReemplazo::create([
+                            'equipo_id' => $equipo->id,
+                            'falla_id' => $falla->id,
+                            'tipo' => 'baja',
+                            'motivo' => $motivo,
+                            'estado' => 'propuesta',
+                            'propuesta_por' => $panolero->id,
+                            'aprobada_por' => null,
+                            'fecha' => now()->toDateString(),
+                        ]);
+
+                        // Vincular el documento de la falla a la propuesta si existe
+                        $docFalla = $falla->documentos()->first();
+                        if ($docFalla) {
+                            Documento::create([
+                                'tipo' => 'informe_tecnico',
+                                'ruta' => $docFalla->ruta,
+                                'nombre_original' => $docFalla->nombre_original,
+                                'hash_sha256' => $docFalla->hash_sha256,
+                                'documentable_type' => BajaReemplazo::class,
+                                'documentable_id' => $propuesta->id,
+                                'subido_por' => $panolero->id,
+                                'creado_en' => now(),
+                            ]);
+                        }
+                    }
+                }
             } elseif (in_array($nuevoEstado, ['en_revision', 'en_reparacion'], true)) {
-                $equipo->update(['estado' => 'en_mantenimiento']);
+                if ($equipo && $equipo->estado !== 'dado_de_baja') {
+                    $equipo->update(['estado' => 'en_mantenimiento']);
+                }
             }
 
             return $falla->fresh(['equipo', 'reportador', 'atendedor']);

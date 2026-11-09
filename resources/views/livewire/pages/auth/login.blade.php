@@ -115,16 +115,4 @@ new #[Layout('layouts.guest')] class extends Component
             </x-primary-button>
         </div>
     </form>
-
-    <!-- Nota Informativa de Estudiantes (Sin Cuenta) -->
-    <div class="mt-6 pt-4 border-t border-slate-100 bg-slate-50/70 -mx-4 -mb-4 px-4 py-3 rounded-b-2xl">
-        <div class="flex items-start gap-2.5">
-            <svg class="w-4 h-4 text-slate-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <p class="text-[11px] text-slate-600 leading-relaxed">
-                <span class="font-semibold text-slate-700">Atención estudiantes:</span> El sistema es exclusivo para funcionarios y docentes. Los préstamos de materiales se gestionan presentando tu credencial o carnet en el mesón de pañol.
-            </p>
-        </div>
-    </div>
 </div>

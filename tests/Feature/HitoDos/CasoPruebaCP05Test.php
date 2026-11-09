@@ -9,9 +9,7 @@ use App\Models\Ubicacion;
 use App\Models\User;
 use App\Services\EquipoService;
 use App\Services\MantenimientoService;
-use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 class CasoPruebaCP05Test extends TestCase
@@ -19,9 +17,13 @@ class CasoPruebaCP05Test extends TestCase
     use RefreshDatabase;
 
     protected Carrera $carrera;
+
     protected Ubicacion $ubicacion;
+
     protected User $panolero;
+
     protected EquipoService $equipoService;
+
     protected MantenimientoService $mantenimientoService;
 
     protected function setUp(): void

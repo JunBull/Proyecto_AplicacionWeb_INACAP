@@ -3,14 +3,11 @@
 namespace Tests\Feature\HitoCuatro;
 
 use App\Models\Carrera;
-use App\Models\DetalleSolicitud;
 use App\Models\Devolucion;
-use App\Models\Entrega;
 use App\Models\Equipo;
 use App\Models\Falla;
 use App\Models\Insumo;
 use App\Models\MovimientoInventario;
-use App\Models\SolicitudMaterial;
 use App\Models\Ubicacion;
 use App\Models\User;
 use App\Services\PrestamoService;
@@ -24,11 +21,17 @@ class CasoPruebaCP21Test extends TestCase
     use RefreshDatabase;
 
     protected Carrera $carrera;
+
     protected Ubicacion $ubicacion;
+
     protected User $docente;
+
     protected User $panolero;
+
     protected Equipo $equipoOsciloscopio;
+
     protected Insumo $insumoSonda;
+
     protected PrestamoService $prestamoService;
 
     protected function setUp(): void

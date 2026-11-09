@@ -4,7 +4,6 @@ namespace Tests\Feature\HitoDos;
 
 use App\Models\Carrera;
 use App\Models\Insumo;
-use App\Models\Ubicacion;
 use App\Services\InventarioService;
 use App\Services\UbicacionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -15,7 +14,9 @@ class CasoPruebaCP11Test extends TestCase
     use RefreshDatabase;
 
     protected Carrera $carrera;
+
     protected UbicacionService $ubicacionService;
+
     protected InventarioService $inventarioService;
 
     protected function setUp(): void

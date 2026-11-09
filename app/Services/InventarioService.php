@@ -5,7 +5,6 @@ namespace App\Services;
 use App\Models\Compra;
 use App\Models\Insumo;
 use App\Models\MovimientoInventario;
-use App\Models\SolicitudMaterial;
 use App\Models\Ubicacion;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
@@ -46,7 +45,7 @@ class InventarioService
     /**
      * Modifica la información y/o ubicación física detallada de un insumo (CP-11).
      *
-     * @param array<string, mixed> $datos
+     * @param  array<string, mixed>  $datos
      */
     public function actualizarInsumo(Insumo $insumo, array $datos): Insumo
     {
@@ -70,7 +69,7 @@ class InventarioService
     /**
      * Registra un ingreso de insumo al stock (por compra o ingreso manual) (CP-13).
      *
-     * @param 'ingreso_compra'|'ingreso_manual'|'reingreso_devolucion' $tipo
+     * @param  'ingreso_compra'|'ingreso_manual'|'reingreso_devolucion'  $tipo
      */
     public function registrarIngreso(
         Insumo $insumo,
@@ -113,7 +112,7 @@ class InventarioService
      * Registra una salida de insumo del stock (consumo de taller, préstamo o merma) (CP-13).
      * Bloquea terminantemente cantidades negativas, cero o superiores al stock actual.
      *
-     * @param 'salida_prestamo'|'salida_consumo' $tipo
+     * @param  'salida_prestamo'|'salida_consumo'  $tipo
      */
     public function registrarSalida(
         Insumo $insumo,
@@ -176,7 +175,7 @@ class InventarioService
             throw new InvalidArgumentException('Debe ingresar una justificación para el ajuste de inventario.');
         }
 
-        return DB::transaction(function () use ($insumo, $nuevoStock, $usuario, $justificacion) {
+        return DB::transaction(function () use ($insumo, $nuevoStock, $usuario) {
             /** @var Insumo $insumoBloqueado */
             $insumoBloqueado = Insumo::where('id', $insumo->id)->lockForUpdate()->firstOrFail();
 
@@ -235,7 +234,7 @@ class InventarioService
     /**
      * Valida los atributos de creación de un insumo.
      *
-     * @param array<string, mixed> $datos
+     * @param  array<string, mixed>  $datos
      */
     protected function validarDatosInsumo(array $datos): void
     {

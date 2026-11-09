@@ -18,11 +18,15 @@ class SolicitudMaterial extends Model
         'revisada_por',
         'asignatura_id',
         'ubicacion_destino_id',
+        'tipo_destino',
+        'edificio_destino',
+        'espacio_destino',
         'fecha_solicitud',
         'fecha_requerida',
         'hora_requerida',
         'estado',
         'observaciones',
+        'motivo_cancelacion',
     ];
 
     protected function casts(): array

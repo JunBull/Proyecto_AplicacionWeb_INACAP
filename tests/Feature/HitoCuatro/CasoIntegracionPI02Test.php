@@ -6,7 +6,6 @@ use App\Exceptions\EquipoNoDisponibleException;
 use App\Models\Carrera;
 use App\Models\Entrega;
 use App\Models\Equipo;
-use App\Models\SolicitudMaterial;
 use App\Models\Ubicacion;
 use App\Models\User;
 use App\Services\PrestamoService;
@@ -19,12 +18,19 @@ class CasoIntegracionPI02Test extends TestCase
     use RefreshDatabase;
 
     protected Carrera $carrera;
+
     protected Ubicacion $ubicacion;
+
     protected User $docente1;
+
     protected User $docente2;
+
     protected User $panolero1;
+
     protected User $panolero2;
+
     protected Equipo $equipoTelescopio;
+
     protected PrestamoService $prestamoService;
 
     protected function setUp(): void

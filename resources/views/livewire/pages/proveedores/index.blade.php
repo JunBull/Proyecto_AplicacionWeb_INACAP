@@ -74,7 +74,7 @@ new #[Layout('layouts.app')] class extends Component
             $this->reset(['razon_social', 'rut', 'correo', 'telefono', 'tipo', 'activo', 'mostrarModalCrear']);
             $this->activo = true;
             $this->tipo = 'insumos';
-            session()->flash('mensaje', 'Proveedor registrado exitosamente en el catálogo categorizado (CP-16).');
+            session()->flash('mensaje', 'Proveedor registrado exitosamente.');
         } catch (ValidationException $e) {
             $this->setErrorBag($e->validator->getMessageBag());
         }
@@ -100,8 +100,8 @@ new #[Layout('layouts.app')] class extends Component
         <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
             <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                 <div>
-                    <h2 class="text-xl font-bold text-gray-800">Directorio de Proveedores Categorizados</h2>
-                    <p class="text-sm text-gray-500">Gestión clasificada de proveedores de insumos y mantenimiento (CP-16)</p>
+                    <h2 class="text-xl font-bold text-gray-800">Proveedores</h2>
+                    <p class="text-sm text-gray-500">Contactos comerciales y rubros de proveedores registrados.</p>
                 </div>
                 <button
                     wire:click="$set('mostrarModalCrear', true)"

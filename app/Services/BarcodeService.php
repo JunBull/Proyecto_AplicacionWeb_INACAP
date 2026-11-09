@@ -29,6 +29,7 @@ class BarcodeService
     ];
 
     protected const START_B = 104;
+
     protected const STOP = 106;
 
     /**
@@ -118,7 +119,7 @@ SVG;
     /**
      * Genera una etiqueta completa lista para imprimir con el formato institucional descriptivo.
      *
-     * @param array{codigo: string, nombre: string, institucion?: string, subtitulo?: string|null, ubicacion?: string|null} $datos
+     * @param  array{codigo: string, nombre: string, institucion?: string, subtitulo?: string|null, ubicacion?: string|null}  $datos
      */
     public function generarEtiquetaHtml(array $datos): string
     {
@@ -152,7 +153,7 @@ HTML;
     /**
      * Genera un lote de hasta 20 etiquetas optimizado para impresión (cumpliendo SLA-07: <= 10 seg).
      *
-     * @param array<int, array{codigo: string, nombre: string, institucion?: string, ubicacion?: string|null}> $items
+     * @param  array<int, array{codigo: string, nombre: string, institucion?: string, ubicacion?: string|null}>  $items
      * @return array{tiempo_ms: float, total: int, html: string}
      */
     public function generarLoteEtiquetas(array $items): array

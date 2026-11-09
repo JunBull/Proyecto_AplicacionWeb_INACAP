@@ -25,10 +25,79 @@ new #[Layout('layouts.app')] class extends Component
     public bool $mostrarModalCrear = false;
     public string $fecha_requerida = '';
     public string $hora_requerida = '08:30';
+    public string $asignatura_seleccionada = ''; // ID de asignatura o 'otra'
     public ?int $asignatura_id = null;
+    public string $tipo_destino = 'laboratorio'; // 'sala' | 'laboratorio'
+    public string $edificio_destino = 'Edificio A'; // 'Edificio A' | 'Edificio C'
+    public string $sala_destino = 'Sala A-101';
+    public ?int $laboratorio_destino_id = null;
     public ?int $ubicacion_destino_id = null;
     public string $observaciones = '';
     public array $itemsSeleccionados = []; // [['tipo' => 'insumo'|'equipo', 'id' => int, 'nombre' => string, 'cantidad' => float, 'es_retornable' => bool]]
+
+    public array $salasEdificioA = [
+        'Sala A-101', 'Sala A-102', 'Sala A-103',
+        'Sala A-201', 'Sala A-202', 'Sala A-203',
+        'Sala A-301', 'Sala A-302',
+    ];
+
+    public array $salasEdificioC = [
+        'Sala C-101', 'Sala C-102', 'Sala C-103',
+        'Sala C-201', 'Sala C-202', 'Sala C-203',
+        'Sala C-301', 'Sala C-302',
+    ];
+
+    public function seleccionarTipoDestino(string $tipo): void
+    {
+        $this->tipo_destino = $tipo;
+        if ($tipo === 'sala') {
+            $this->edificio_destino = 'Edificio A';
+            $this->sala_destino = 'Sala A-101';
+            $this->ubicacion_destino_id = null;
+        } else {
+            $primerLab = Ubicacion::where('tipo', 'laboratorio')->first() ?? Ubicacion::first();
+            $this->ubicacion_destino_id = $primerLab?->id;
+            $this->edificio_destino = 'Edificio A';
+        }
+    }
+
+    public function updatedTipoDestino(string $valor): void
+    {
+        $this->seleccionarTipoDestino($valor);
+    }
+
+    public function updatedUbicacionDestinoId($val): void
+    {
+        if ($val) {
+            $this->tipo_destino = 'laboratorio';
+        }
+    }
+
+    public function updatedEdificioDestino(string $valor): void
+    {
+        if ($valor === 'Edificio A') {
+            $this->sala_destino = 'Sala A-101';
+        } else {
+            $this->sala_destino = 'Sala C-101';
+        }
+    }
+
+    public function updatedAsignaturaSeleccionada(string $valor): void
+    {
+        if ($valor === 'otra') {
+            $this->asignatura_id = null;
+        } else {
+            $this->asignatura_id = ! empty($valor) ? (int) $valor : null;
+            $this->observaciones = '';
+        }
+    }
+
+    public function updatedAsignaturaId($val): void
+    {
+        if ($val) {
+            $this->asignatura_seleccionada = (string) $val;
+        }
+    }
 
     // Modal de detalle de solicitud
     public bool $mostrarModalDetalle = false;
@@ -50,7 +119,13 @@ new #[Layout('layouts.app')] class extends Component
         $this->hora_requerida = '08:30';
         $primerLab = Ubicacion::where('tipo', 'laboratorio')->first() ?? Ubicacion::first();
         if ($primerLab) {
+            $this->laboratorio_destino_id = $primerLab->id;
             $this->ubicacion_destino_id = $primerLab->id;
+        }
+        $primerAsig = $this->asignaturasDocente()->first();
+        if ($primerAsig) {
+            $this->asignatura_seleccionada = (string) $primerAsig->id;
+            $this->asignatura_id = $primerAsig->id;
         }
     }
 
@@ -71,9 +146,16 @@ new #[Layout('layouts.app')] class extends Component
             $this->fecha_requerida = Carbon::tomorrow()->toDateString();
         }
         $this->hora_requerida = '08:30';
-        $this->asignatura_id = null;
+        $primerAsig = $this->asignaturasDocente()->first();
+        $this->asignatura_seleccionada = $primerAsig ? (string) $primerAsig->id : '';
+        $this->asignatura_id = $primerAsig?->id;
+        $this->tipo_destino = 'laboratorio';
+        $this->edificio_destino = 'Edificio A';
+        $this->sala_destino = 'Sala A-101';
         $primerLab = Ubicacion::where('tipo', 'laboratorio')->first() ?? Ubicacion::first();
+        $this->laboratorio_destino_id = $primerLab?->id;
         $this->ubicacion_destino_id = $primerLab?->id;
+        $this->observaciones = '';
         $this->mostrarModalCrear = true;
     }
 
@@ -203,20 +285,40 @@ new #[Layout('layouts.app')] class extends Component
     {
         Gate::authorize('create', SolicitudMaterial::class);
 
-        $this->validate([
+        $reglas = [
             'fecha_requerida' => 'required|date|after_or_equal:today',
             'hora_requerida' => 'required|string',
-            'ubicacion_destino_id' => 'required|exists:ubicaciones,id',
+            'tipo_destino' => 'required|in:sala,laboratorio',
             'itemsSeleccionados' => 'required|array|min:1',
             'itemsSeleccionados.*.cantidad' => 'required|numeric|min:1',
-        ], [
+        ];
+
+        $mensajes = [
             'fecha_requerida.required' => 'La fecha requerida es obligatoria.',
             'fecha_requerida.after_or_equal' => 'La fecha requerida no puede ser anterior a hoy.',
             'hora_requerida.required' => 'La hora requerida es obligatoria para la preparación en pañol.',
-            'ubicacion_destino_id.required' => 'Debe indicar la sala o laboratorio de destino.',
+            'tipo_destino.required' => 'Debe indicar si el destino es SALA o LABORATORIO.',
             'itemsSeleccionados.min' => 'Debe agregar al menos un ítem a la solicitud.',
             'itemsSeleccionados.*.cantidad.min' => 'La cantidad mínima por ítem es 1.',
-        ]);
+        ];
+
+        if ($this->tipo_destino === 'sala') {
+            $reglas['edificio_destino'] = 'required|in:Edificio A,Edificio C';
+            $reglas['sala_destino'] = 'required|string';
+            $mensajes['edificio_destino.required'] = 'Debe seleccionar un edificio para la sala.';
+            $mensajes['sala_destino.required'] = 'Debe seleccionar la sala de destino.';
+        } else {
+            $reglas['ubicacion_destino_id'] = 'required|exists:ubicaciones,id';
+            $mensajes['ubicacion_destino_id.required'] = 'Debe seleccionar el laboratorio de destino.';
+        }
+
+        if ($this->asignatura_seleccionada === 'otra') {
+            $reglas['observaciones'] = 'required|string|min:3';
+            $mensajes['observaciones.required'] = 'Debe especificar el nombre o detalle de la otra actividad.';
+            $mensajes['observaciones.min'] = 'La descripción de la actividad debe tener al menos 3 caracteres.';
+        }
+
+        $this->validate($reglas, $mensajes);
 
         $itemsFormateados = [];
         foreach ($this->itemsSeleccionados as $item) {
@@ -227,23 +329,59 @@ new #[Layout('layouts.app')] class extends Component
             ];
         }
 
+        $asignaturaIdFinal = null;
+        if ($this->asignatura_seleccionada === 'otra') {
+            $asignaturaIdFinal = null;
+        } elseif (! empty($this->asignatura_id)) {
+            $asignaturaIdFinal = $this->asignatura_id;
+        } elseif (! empty($this->asignatura_seleccionada)) {
+            $asignaturaIdFinal = (int) $this->asignatura_seleccionada;
+        }
+
+        $ubicacionDestinoId = null;
+        $espacioDestino = '';
+
+        if ($this->tipo_destino === 'sala') {
+            $espacioDestino = "{$this->edificio_destino} - {$this->sala_destino}";
+        } else {
+            $lab = Ubicacion::find($this->ubicacion_destino_id ?: $this->laboratorio_destino_id);
+            $ubicacionDestinoId = $lab?->id;
+            $espacioDestino = $lab ? $lab->nombre : 'Laboratorio';
+        }
+
         try {
             $prestamoService->crearSolicitud(
                 Auth::user(),
                 [
                     'fecha_requerida' => $this->fecha_requerida,
                     'hora_requerida' => $this->hora_requerida,
-                    'asignatura_id' => $this->asignatura_id ?: null,
-                    'ubicacion_destino_id' => $this->ubicacion_destino_id,
+                    'asignatura_id' => $asignaturaIdFinal,
+                    'ubicacion_destino_id' => $ubicacionDestinoId,
+                    'tipo_destino' => $this->tipo_destino,
+                    'edificio_destino' => $this->tipo_destino === 'sala' ? $this->edificio_destino : 'Edificio A',
+                    'espacio_destino' => $espacioDestino,
                     'observaciones' => $this->observaciones,
                 ],
                 $itemsFormateados
             );
 
-            session()->flash('mensaje', '¡Solicitud registrada exitosamente! Se encuentra en la cola de revisión de pañol.');
+            session()->flash('mensaje', '¡Solicitud registrada exitosamente! El pañolero despachará los materiales al destino indicado.');
             $this->mostrarModalCrear = false;
             $this->itemsSeleccionados = [];
             $this->observaciones = '';
+        } catch (\Exception $e) {
+            session()->flash('error', $e->getMessage());
+        }
+    }
+
+    public function cancelarSolicitud(int $solicitudId, PrestamoService $prestamoService): void
+    {
+        $solicitud = SolicitudMaterial::findOrFail($solicitudId);
+        Gate::authorize('update', $solicitud);
+
+        try {
+            $prestamoService->cancelarSolicitud($solicitud, Auth::user());
+            session()->flash('mensaje', '¡Solicitud #SOL-' . str_pad($solicitud->id, 5, '0', STR_PAD_LEFT) . ' cancelada exitosamente!');
         } catch (\Exception $e) {
             session()->flash('error', $e->getMessage());
         }
@@ -293,18 +431,11 @@ new #[Layout('layouts.app')] class extends Component
                 <svg class="w-7 h-7 text-red-600 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
                 </svg>
-                Portal Docente: Solicitud de Materiales e Incidencias
+                <span>Solicitud de Materiales</span>
+                <span class="sr-only">Portal Docente: Solicitud de Materiales</span>
             </h1>
-            <p class="text-sm text-gray-500 mt-1">Consulte disponibilidad en pañol, solicite insumos para talleres y reporte incidencias técnicas con respaldo formal en PDF (CP-28).</p>
         </div>
         <div class="flex items-center gap-2 w-full sm:w-auto">
-            <button
-                wire:click="abrirModalIncidencia"
-                class="w-full sm:w-auto inline-flex items-center justify-center px-3.5 py-2.5 min-h-[44px] bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs sm:text-sm rounded-lg shadow-sm hover:shadow transition active:scale-95"
-            >
-                <svg class="w-4 h-4 me-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-                Reportar Incidencia
-            </button>
             <button
                 wire:click="abrirModalCrear"
                 class="w-full sm:w-auto inline-flex items-center justify-center px-4 py-2.5 min-h-[44px] bg-red-700 hover:bg-red-800 text-white font-semibold text-sm rounded-lg shadow-sm hover:shadow transition active:scale-95 relative"
@@ -506,38 +637,15 @@ new #[Layout('layouts.app')] class extends Component
             </div>
         </div>
 
-        <!-- Columna Central/Derecha: Mis Solicitudes Registradas e Incidencias -->
+        <!-- Columna Central/Derecha: Mis Solicitudes Registradas -->
         <div class="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6">
             @php 
                 $listaSolicitudes = $this->solicitudes(); 
-                $listaIncidencias = $this->misIncidencias(); 
             @endphp
 
-            <!-- Selector de Pestañas -->
-            <div class="flex items-center gap-2 border-b border-gray-200 mb-5">
-                <button
-                    wire:click="$set('pestanaActiva', 'solicitudes')"
-                    class="pb-2.5 px-3 text-xs sm:text-sm font-semibold transition border-b-2 flex items-center gap-1.5 {{ $pestanaActiva === 'solicitudes' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-800' }}"
-                >
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
-                    <span>Mis Solicitudes de Material</span>
-                    <span class="text-[11px] px-1.5 py-0.5 rounded-full {{ $pestanaActiva === 'solicitudes' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">{{ $listaSolicitudes->count() }}</span>
-                </button>
-                <button
-                    wire:click="$set('pestanaActiva', 'incidencias')"
-                    class="pb-2.5 px-3 text-xs sm:text-sm font-semibold transition border-b-2 flex items-center gap-1.5 {{ $pestanaActiva === 'incidencias' ? 'border-amber-600 text-amber-600' : 'border-transparent text-gray-500 hover:text-gray-800' }}"
-                >
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-                    <span>Mis Incidencias Reportadas</span>
-                    <span class="text-[11px] px-1.5 py-0.5 rounded-full {{ $pestanaActiva === 'incidencias' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600' }}">{{ $listaIncidencias->count() }}</span>
-                </button>
-            </div>
-
-            @if($pestanaActiva === 'solicitudes')
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 border-b border-gray-100 pb-3">
                 <div>
-                    <h2 class="text-base font-semibold text-gray-900">Mis Solicitudes Realizadas</h2>
-                    <p class="text-xs text-gray-500">Historial y estado de atención en mesón de pañol.</p>
+                    <h2 class="text-base font-semibold text-gray-900">Mis Solicitudes</h2>
                 </div>
                 <!-- Filtro por Estado -->
                 <div class="flex items-center gap-2">
@@ -547,10 +655,11 @@ new #[Layout('layouts.app')] class extends Component
                         class="text-xs border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500 py-1.5"
                     >
                         <option value="todos">Todas</option>
-                        <option value="pendiente">Pendientes</option>
+                        <option value="pendiente">Solicitadas</option>
                         <option value="aprobada">Aprobadas</option>
                         <option value="entregada_abierta">Préstamo Activo</option>
                         <option value="cerrada">Cerradas</option>
+                        <option value="cancelada">Canceladas</option>
                         <option value="rechazada">Rechazadas</option>
                         <option value="sin_disponibilidad">Sin Disponibilidad</option>
                     </select>
@@ -578,10 +687,11 @@ new #[Layout('layouts.app')] class extends Component
                                 <div>
                                     @php
                                         $labelEstado = match($sol->estado) {
-                                            'pendiente' => 'Pendiente de Revisión',
+                                            'pendiente' => 'Solicitado',
                                             'aprobada' => 'Aprobada (Lista para Retiro)',
                                             'entregada_abierta' => 'Préstamo Abierto',
                                             'cerrada' => 'Cerrada / Finalizada',
+                                            'cancelada' => 'Cancelada',
                                             'rechazada' => 'Rechazada',
                                             'sin_disponibilidad' => 'Sin Disponibilidad',
                                             default => ucfirst(str_replace('_', ' ', $sol->estado)),
@@ -611,15 +721,55 @@ new #[Layout('layouts.app')] class extends Component
                                         </li>
                                     @endforeach
                                 </ul>
-                                @if($sol->observaciones)
-                                    <p class="text-[11px] text-gray-500 italic mt-1.5 bg-gray-50 p-1.5 rounded border border-gray-100">
-                                        "{{ $sol->observaciones }}"
-                                    </p>
-                                @endif
+
+                                <!-- Destino, Horario y Asignatura / Actividad -->
+                                <div class="mt-3 p-2.5 rounded-lg bg-gray-50/80 border border-gray-100 text-xs space-y-1.5">
+                                    <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-gray-700">
+                                        <span class="inline-flex items-center gap-1 font-medium">
+                                            <svg class="w-3.5 h-3.5 text-red-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                                            Destino: <strong class="text-gray-900">{{ $sol->espacio_destino ?: ($sol->ubicacionDestino->nombre ?? 'Pañol Central') }}</strong>
+                                        </span>
+                                        @if($sol->hora_requerida)
+                                            <span class="inline-flex items-center gap-1 text-gray-600">
+                                                <svg class="w-3.5 h-3.5 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                                Hora: <strong class="text-gray-800">{{ substr($sol->hora_requerida, 0, 5) }} hrs</strong>
+                                            </span>
+                                        @endif
+                                    </div>
+                                    <div class="flex items-center gap-1.5 text-gray-700">
+                                        <svg class="w-3.5 h-3.5 text-gray-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+                                        @if($sol->asignatura)
+                                            <span>Asignatura: <strong class="text-gray-900">{{ $sol->asignatura->codigo }} - {{ $sol->asignatura->nombre }}</strong></span>
+                                        @elseif($sol->observaciones)
+                                            <span>Actividad: <strong class="text-gray-900">{{ $sol->observaciones }}</strong></span>
+                                        @else
+                                            <span class="text-gray-500 italic">Actividad Académica General</span>
+                                        @endif
+                                    </div>
+                                    @if($sol->motivo_cancelacion)
+                                        <div class="text-[11px] text-red-600 font-medium">
+                                            Motivo cancelación: {{ $sol->motivo_cancelacion }}
+                                        </div>
+                                    @endif
+                                </div>
                             </div>
 
-                            <!-- Botón Detalle -->
-                            <div class="mt-3 pt-2 border-t border-gray-100 flex justify-end">
+                            <!-- Botón Cancelar y Detalle -->
+                            <div class="mt-3 pt-2 border-t border-gray-100 flex items-center justify-between">
+                                <div>
+                                    @if($sol->estado === 'pendiente')
+                                        <button
+                                            type="button"
+                                            wire:click="cancelarSolicitud({{ $sol->id }})"
+                                            wire:confirm="¿Está seguro de que desea cancelar esta solicitud?"
+                                            class="text-xs text-gray-500 hover:text-red-600 font-semibold flex items-center gap-1 transition"
+                                            title="Cancelar esta solicitud si no asistirá a clase"
+                                        >
+                                            <svg class="w-3.5 h-3.5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                            Cancelar solicitud
+                                        </button>
+                                    @endif
+                                </div>
                                 <button
                                     wire:click="verDetalle({{ $sol->id }})"
                                     class="text-xs text-red-600 hover:text-red-800 font-semibold flex items-center gap-1"
@@ -630,63 +780,6 @@ new #[Layout('layouts.app')] class extends Component
                         </div>
                     @endforeach
                 </div>
-            @endif
-            @else
-                <!-- Listado de Incidencias Técnicas Reportadas por el Docente (CP-28) -->
-                @if($listaIncidencias->isEmpty())
-                    <div class="text-center py-12">
-                        <svg class="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                        </svg>
-                        <h3 class="text-sm font-medium text-gray-700">No ha reportado incidencias</h3>
-                        <p class="text-xs text-gray-400 mt-1">Si detecta algún desperfecto en un equipo o insumo de taller, use el botón superior "Reportar Incidencia".</p>
-                    </div>
-                @else
-                    <div class="space-y-3">
-                        @foreach($listaIncidencias as $inc)
-                            <div class="p-4 rounded-xl border border-gray-200 hover:border-gray-300 transition bg-white shadow-xs">
-                                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-2.5">
-                                    <div class="flex items-center gap-2">
-                                        <span class="font-mono font-bold text-xs text-gray-800">#INC-{{ $inc->id }}</span>
-                                        <x-status-badge :estado="$inc->estado" />
-                                        <span class="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded {{ $inc->severidad === 'critica' ? 'bg-red-100 text-red-700' : ($inc->severidad === 'alta' ? 'bg-orange-100 text-orange-700' : 'bg-yellow-100 text-yellow-700') }}">
-                                            Severidad {{ $inc->severidad ?? 'Media' }}
-                                        </span>
-                                    </div>
-                                    <div class="flex items-center gap-2">
-                                        <span class="text-[11px] text-gray-400">{{ \Carbon\Carbon::parse($inc->fecha_reporte)->translatedFormat('d M Y, H:i') }}</span>
-                                        <a
-                                            href="{{ asset('storage/incidencias/Reporte_Incidencia_' . $inc->id . '.pdf') }}"
-                                            target="_blank"
-                                            class="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-semibold rounded-lg border border-amber-200 shadow-2xs transition"
-                                        >
-                                            <svg class="w-3.5 h-3.5 text-amber-700" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                                            Ver PDF
-                                        </a>
-                                    </div>
-                                </div>
-                                <div class="mt-2.5 text-xs text-gray-700">
-                                    <div class="font-semibold text-gray-900 flex items-center gap-1.5">
-                                        @if($inc->equipo)
-                                            <span class="px-1.5 py-0.5 text-[10px] bg-blue-50 text-blue-700 rounded font-bold uppercase">Equipo</span>
-                                            {{ $inc->equipo->nombre }} (Marca: {{ $inc->equipo->marca }}, Serie: {{ $inc->equipo->numero_serie }})
-                                        @elseif($inc->insumo)
-                                            <span class="px-1.5 py-0.5 text-[10px] bg-purple-50 text-purple-700 rounded font-bold uppercase">Insumo</span>
-                                            {{ $inc->insumo->nombre }} (Código: {{ $inc->insumo->codigo_barras }})
-                                        @endif
-                                    </div>
-                                    <p class="mt-1.5 text-gray-600 bg-gray-50/70 p-2 rounded border border-gray-100 italic">
-                                        "{{ $inc->descripcion }}"
-                                    </p>
-                                    <div class="mt-2 text-[11px] text-gray-400 flex items-center justify-between">
-                                        <span>Laboratorio / Ubicación: <strong class="text-gray-600">{{ $inc->ubicacion?->nombre ?? 'Pañol' }}</strong></span>
-                                        <span>Reportado por: {{ $inc->reportador?->name }}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        @endforeach
-                    </div>
-                @endif
             @endif
         </div>
     </div>
@@ -721,12 +814,12 @@ new #[Layout('layouts.app')] class extends Component
                         </div>
                     @endif
 
-                    <!-- Parámetros Académicos y Horarios de la Solicitud (CP-23, Sección 3.2) -->
+                    <!-- Parámetros de Fecha y Hora -->
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <!-- Fecha Requerida -->
                         <div>
                             <label class="block text-xs font-semibold text-gray-700 mb-1">
-                                Fecha Requerida de Retiro <span class="text-red-500">*</span>
+                                Fecha Requerida <span class="text-red-500">*</span>
                             </label>
                             <input
                                 type="date"
@@ -742,7 +835,7 @@ new #[Layout('layouts.app')] class extends Component
                         <!-- Hora Requerida -->
                         <div>
                             <label class="block text-xs font-semibold text-gray-700 mb-1">
-                                Hora Requerida en Laboratorio <span class="text-red-500">*</span>
+                                Hora Requerida <span class="text-red-500">*</span>
                             </label>
                             <input
                                 type="time"
@@ -755,44 +848,111 @@ new #[Layout('layouts.app')] class extends Component
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <!-- Asignatura / Taller Docente -->
-                        <div>
-                            <label class="block text-xs font-semibold text-gray-700 mb-1">
-                                Asignatura / Taller Práctico <span class="text-red-500">*</span>
-                            </label>
-                            <select
-                                wire:model="asignatura_id"
-                                class="w-full text-xs border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500"
-                            >
-                                <option value="">Otros / Actividad Académica General</option>
-                                @foreach($this->asignaturasDocente() as $asig)
-                                    <option value="{{ $asig->id }}">{{ $asig->codigo }} - {{ $asig->nombre }}</option>
-                                @endforeach
-                            </select>
-                            @error('asignatura_id')
-                                <p class="text-[11px] text-red-600 mt-1 font-semibold">{{ $message }}</p>
-                            @enderror
-                        </div>
+                    <!-- Asignatura / Taller Práctico -->
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-700 mb-1">
+                            Asignatura / Taller Práctico <span class="text-red-500">*</span>
+                        </label>
+                        <select
+                            wire:model.live="asignatura_seleccionada"
+                            class="w-full text-xs border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500"
+                        >
+                            <option value="">Seleccione Asignatura...</option>
+                            @foreach($this->asignaturasDocente() as $asig)
+                                <option value="{{ $asig->id }}">{{ $asig->codigo }} - {{ $asig->nombre }}</option>
+                            @endforeach
+                            <option value="otra">Otra actividad</option>
+                        </select>
+                        @error('asignatura_seleccionada')
+                            <p class="text-[11px] text-red-600 mt-1 font-semibold">{{ $message }}</p>
+                        @enderror
+                    </div>
 
-                        <!-- Sala / Laboratorio de Destino -->
+                    <!-- Selector Multinivel de Destino (SALA vs LABORATORIO) -->
+                    <div class="p-3 bg-gray-50/90 rounded-xl border border-gray-200 space-y-3">
                         <div>
-                            <label class="block text-xs font-semibold text-gray-700 mb-1">
+                            <label class="block text-xs font-semibold text-gray-700 mb-1.5">
                                 Sala / Laboratorio de Destino <span class="text-red-500">*</span>
                             </label>
-                            <select
-                                wire:model="ubicacion_destino_id"
-                                class="w-full text-xs border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500"
-                            >
-                                <option value="">Seleccione Laboratorio / Taller...</option>
-                                @foreach($this->laboratoriosDisponibles() as $lab)
-                                    <option value="{{ $lab->id }}">{{ $lab->nombre }} ({{ ucfirst($lab->tipo) }})</option>
-                                @endforeach
-                            </select>
-                            @error('ubicacion_destino_id')
-                                <p class="text-[11px] text-red-600 mt-1 font-semibold">{{ $message }}</p>
-                            @enderror
+                            <div class="grid grid-cols-2 gap-2">
+                                <button
+                                    type="button"
+                                    wire:click="seleccionarTipoDestino('sala')"
+                                    class="py-2 px-3 text-xs font-semibold rounded-lg border text-center transition {{ $tipo_destino === 'sala' ? 'bg-red-600 text-white border-red-600 shadow-xs' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100' }}"
+                                >
+                                    SALA
+                                </button>
+                                <button
+                                    type="button"
+                                    wire:click="seleccionarTipoDestino('laboratorio')"
+                                    class="py-2 px-3 text-xs font-semibold rounded-lg border text-center transition {{ $tipo_destino === 'laboratorio' ? 'bg-red-600 text-white border-red-600 shadow-xs' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100' }}"
+                                >
+                                    LABORATORIO
+                                </button>
+                            </div>
                         </div>
+
+                        @if($tipo_destino === 'sala')
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-gray-200/70">
+                                <div>
+                                    <label class="block text-[11px] font-semibold text-gray-600 mb-1">
+                                        Edificio <span class="text-red-500">*</span>
+                                    </label>
+                                    <select
+                                        wire:model.live="edificio_destino"
+                                        class="w-full text-xs border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500"
+                                    >
+                                        <option value="Edificio A">Edificio A</option>
+                                        <option value="Edificio C">Edificio C</option>
+                                    </select>
+                                    @error('edificio_destino')
+                                        <p class="text-[11px] text-red-600 mt-1 font-semibold">{{ $message }}</p>
+                                    @enderror
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold text-gray-600 mb-1">
+                                        Sala ({{ $edificio_destino }}) <span class="text-red-500">*</span>
+                                    </label>
+                                    <select
+                                        wire:model="sala_destino"
+                                        class="w-full text-xs border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500"
+                                    >
+                                        @if($edificio_destino === 'Edificio A')
+                                            @foreach($salasEdificioA as $sala)
+                                                <option value="{{ $sala }}">{{ $sala }}</option>
+                                            @endforeach
+                                        @else
+                                            @foreach($salasEdificioC as $sala)
+                                                <option value="{{ $sala }}">{{ $sala }}</option>
+                                            @endforeach
+                                        @endif
+                                    </select>
+                                    @error('sala_destino')
+                                        <p class="text-[11px] text-red-600 mt-1 font-semibold">{{ $message }}</p>
+                                    @enderror
+                                </div>
+                            </div>
+                        @else
+                            <div class="pt-1 border-t border-gray-200/70">
+                                <div class="flex items-center justify-between mb-1">
+                                    <label class="text-[11px] font-semibold text-gray-600">
+                                        Laboratorio <span class="text-red-500">*</span>
+                                    </label>
+                                    <span class="text-[10px] text-gray-500 italic">(Todos los laboratorios están en el Edificio A)</span>
+                                </div>
+                                <select
+                                    wire:model="ubicacion_destino_id"
+                                    class="w-full text-xs border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500"
+                                >
+                                    @foreach($this->laboratoriosDisponibles() as $lab)
+                                        <option value="{{ $lab->id }}">{{ $lab->nombre }}</option>
+                                    @endforeach
+                                </select>
+                                @error('ubicacion_destino_id')
+                                    <p class="text-[11px] text-red-600 mt-1 font-semibold">{{ $message }}</p>
+                                @enderror
+                            </div>
+                        @endif
                     </div>
 
                     <!-- Ítems Agregados -->
@@ -862,18 +1022,23 @@ new #[Layout('layouts.app')] class extends Component
                         @enderror
                     </div>
 
-                    <!-- Observaciones -->
-                    <div>
-                        <label class="block text-xs font-semibold text-gray-700 mb-1">
-                            Observaciones / Asignatura o Taller
-                        </label>
-                        <textarea
-                            wire:model="observaciones"
-                            rows="2"
-                            placeholder="Ej. Taller de Redes - Sección 004D, uso en laboratorio..."
-                            class="w-full text-sm border-gray-300 rounded-lg focus:ring-red-500 focus:border-red-500"
-                        ></textarea>
-                    </div>
+                    <!-- Observaciones condicionales (Solo cuando se elige "Otra actividad") -->
+                    @if($asignatura_seleccionada === 'otra')
+                        <div class="p-3 bg-amber-50/60 border border-amber-200 rounded-xl space-y-1">
+                            <label class="block text-xs font-semibold text-amber-900 mb-1">
+                                Especifique qué actividad o taller <span class="text-red-500">*</span>
+                            </label>
+                            <textarea
+                                wire:model="observaciones"
+                                rows="2"
+                                placeholder="Ej. Taller extracurricular de Robótica, Refuerzo de programación..."
+                                class="w-full text-xs border-amber-300 rounded-lg focus:ring-red-500 focus:border-red-500 bg-white"
+                            ></textarea>
+                            @error('observaciones')
+                                <p class="text-[11px] text-red-600 mt-1 font-semibold">{{ $message }}</p>
+                            @enderror
+                        </div>
+                    @endif
                 </div>
 
                 <div class="px-5 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-2">
@@ -890,7 +1055,7 @@ new #[Layout('layouts.app')] class extends Component
                         wire:loading.attr="disabled"
                         class="px-4 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 rounded-lg shadow-sm transition"
                     >
-                        <span wire:loading.remove wire:target="registrarSolicitud">Enviar Solicitud</span>
+                        <span wire:loading.remove wire:target="registrarSolicitud">Enviar</span>
                         <span wire:loading wire:target="registrarSolicitud">Enviando...</span>
                     </button>
                 </div>
@@ -920,15 +1085,28 @@ new #[Layout('layouts.app')] class extends Component
                     </div>
 
                     <div class="p-5 space-y-4 max-h-[75vh] overflow-y-auto text-xs">
-                        <div class="grid grid-cols-2 gap-3 p-3 bg-gray-50 rounded-lg">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 bg-gray-50 rounded-lg">
                             <div>
                                 <span class="text-gray-500 font-medium">Estado:</span>
-                                <span class="font-bold text-gray-800 ml-1">{{ strtoupper($solDetalle->estado) }}</span>
+                                <span class="font-bold text-gray-800 ml-1">{{ $solDetalle->estado === 'pendiente' ? 'SOLICITADO' : strtoupper($solDetalle->estado) }}</span>
+                            </div>
+                            <div>
+                                <span class="text-gray-500 font-medium">Destino:</span>
+                                <span class="font-bold text-gray-800 ml-1">{{ $solDetalle->espacio_destino ?: ($solDetalle->ubicacionDestino->nombre ?? 'Pañol') }}</span>
+                            </div>
+                            <div>
+                                <span class="text-gray-500 font-medium">Asignatura / Actividad:</span>
+                                <span class="font-bold text-gray-800 ml-1">{{ $solDetalle->asignatura ? ($solDetalle->asignatura->codigo . ' - ' . $solDetalle->asignatura->nombre) : ($solDetalle->observaciones ?: 'Actividad Académica General') }}</span>
                             </div>
                             <div>
                                 <span class="text-gray-500 font-medium">Revisada Por:</span>
-                                <span class="text-gray-800 ml-1">{{ $solDetalle->revisor->name ?? 'En espera de revisión' }}</span>
+                                <span class="text-gray-800 ml-1">{{ $solDetalle->revisor->name ?? 'En espera de despacho' }}</span>
                             </div>
+                            @if($solDetalle->motivo_cancelacion)
+                                <div class="col-span-1 sm:col-span-2 text-red-600 font-semibold">
+                                    Motivo cancelación: {{ $solDetalle->motivo_cancelacion }}
+                                </div>
+                            @endif
                         </div>
 
                         <!-- Tabla de ítems -->

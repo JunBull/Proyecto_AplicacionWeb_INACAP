@@ -58,6 +58,14 @@ class SolicitudMaterialPolicy
     /**
      * Cancelar solicitud: Admin/Pañolero o Docente dueño mientras esté pendiente.
      */
+    public function cancel(User $user, SolicitudMaterial $solicitud): bool
+    {
+        return $this->update($user, $solicitud);
+    }
+
+    /**
+     * Cancelar solicitud: Admin/Pañolero o Docente dueño mientras esté pendiente.
+     */
     public function delete(User $user, SolicitudMaterial $solicitud): bool
     {
         return $this->update($user, $solicitud);

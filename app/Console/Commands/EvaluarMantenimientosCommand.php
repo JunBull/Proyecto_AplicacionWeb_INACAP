@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Services\MantenimientoService;
+use Carbon\Carbon;
 use Illuminate\Console\Command;
 
 class EvaluarMantenimientosCommand extends Command
@@ -27,7 +28,7 @@ class EvaluarMantenimientosCommand extends Command
     public function handle(MantenimientoService $servicio): int
     {
         $fechaParam = $this->option('fecha');
-        $fecha = $fechaParam ? \Carbon\Carbon::parse($fechaParam) : now();
+        $fecha = $fechaParam ? Carbon::parse($fechaParam) : now();
 
         $this->info("Evaluando mantenimientos a la fecha: {$fecha->toDateString()}...");
 

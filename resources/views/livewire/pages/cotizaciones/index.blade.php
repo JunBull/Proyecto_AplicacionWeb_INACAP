@@ -85,7 +85,7 @@ new #[Layout('layouts.app')] class extends Component
             }
 
             $this->reset(['descripcion', 'proveedoresSeleccionados', 'mostrarModalSolicitud']);
-            session()->flash('mensaje', 'Solicitud de cotización creada y correos encolados para despacho asíncrono (CP-17, SLA-05).');
+            session()->flash('mensaje', 'Solicitud de cotización creada y correos encolados para su envío a los proveedores.');
         } catch (ValidationException $e) {
             $this->setErrorBag($e->validator->getMessageBag());
         }
@@ -134,7 +134,7 @@ new #[Layout('layouts.app')] class extends Component
                 'mostrarModalCargarCotizacion',
             ]);
             $this->fechaRecepcion = date('Y-m-d');
-            session()->flash('mensaje', 'Propuesta de cotización registrada y respaldada exitosamente (CP-18).');
+            session()->flash('mensaje', 'Propuesta de cotización registrada exitosamente.');
         } catch (ValidationException $e) {
             $this->setErrorBag($e->validator->getMessageBag());
         }
@@ -166,7 +166,7 @@ new #[Layout('layouts.app')] class extends Component
             );
 
             $this->reset(['mostrarModalAdjudicar', 'cotizacionIdParaAdjudicar', 'excepcionAutorizada', 'justificacionExcepcion']);
-            session()->flash('mensaje', "Adjudicación confirmada para {$cotizacion->proveedor->razon_social} cumpliendo KPI-08.");
+            session()->flash('mensaje', "Adjudicación confirmada para {$cotizacion->proveedor->razon_social}.");
         } catch (ValidationException $e) {
             $this->setErrorBag($e->validator->getMessageBag());
         } catch (SaldoInsuficienteException $e) {
@@ -186,8 +186,8 @@ new #[Layout('layouts.app')] class extends Component
         <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
             <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                 <div>
-                    <h2 class="text-xl font-bold text-gray-800">Proceso 1: Cotizaciones y Adjudicaciones</h2>
-                    <p class="text-sm text-gray-500">Despacho asíncrono vía colas, validación de cuota mínima y control presupuestario (CP-17, CP-18, KPI-08, SLA-05)</p>
+                    <h2 class="text-xl font-bold text-gray-800">Solicitudes de Cotización</h2>
+                    <p class="text-sm text-gray-500">Emisión de cotizaciones a proveedores y adjudicación de compras.</p>
                 </div>
                 <button
                     wire:click="$set('mostrarModalSolicitud', true)"
@@ -231,9 +231,9 @@ new #[Layout('layouts.app')] class extends Component
                             <strong>Requerimiento:</strong> {{ $solicitud->descripcion }}
                         </div>
 
-                        <!-- Bitácora de Envíos en Cola (CP-17, SLA-05) -->
+                        <!-- Bitácora de Envíos en Cola -->
                         <div>
-                            <h4 class="text-xs font-bold uppercase text-gray-600 mb-2">Bitácora de Despacho a Proveedores (SLA-05 / KPI-10)</h4>
+                            <h4 class="text-xs font-bold uppercase text-gray-600 mb-2">Bitácora de Despacho a Proveedores</h4>
                             <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
                                 @forelse($solicitud->envios as $envio)
                                     <div class="p-2 bg-white rounded border text-xs flex justify-between items-center">
@@ -263,7 +263,7 @@ new #[Layout('layouts.app')] class extends Component
                                 </h4>
                                 @if($solicitud->cotizaciones->count() < 2 && $solicitud->estado !== 'adjudicada')
                                     <span class="text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                                        ⚠️ Cuota incompleta: Adjudicación requerirá excepción justificada (KPI-08).
+                                        ⚠️ Cuota incompleta: La adjudicación requerirá justificación de excepción.
                                     </span>
                                 @endif
                             </div>
@@ -448,7 +448,7 @@ new #[Layout('layouts.app')] class extends Component
                     @enderror
 
                     <p class="text-sm text-gray-600">
-                        La confirmación de la adjudicación valida la cuota mínima de 2 a 3 propuestas (KPI-08) y comprueba la disponibilidad presupuestaria de la carrera antes de comprometer fondos.
+                        La confirmación de la adjudicación comprobará la disponibilidad de presupuesto de la carrera antes de comprometer los fondos.
                     </p>
 
                     <div class="p-4 bg-gray-50 border rounded-lg space-y-3">
@@ -459,7 +459,7 @@ new #[Layout('layouts.app')] class extends Component
 
                         @if($excepcionAutorizada)
                             <div>
-                                <label class="block text-xs font-semibold text-gray-700 uppercase">Justificación Obligatoria de la Excepción (KPI-08) *</label>
+                                <label class="block text-xs font-semibold text-gray-700 uppercase">Justificación Obligatoria de la Excepción *</label>
                                 <textarea wire:model="justificacionExcepcion" rows="3" class="w-full border-gray-300 rounded-md shadow-sm text-sm" placeholder="Especifique el motivo técnico, exclusividad de proveedor o urgencia que sustenta la excepción..."></textarea>
                                 @error('justificacion') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
                             </div>
@@ -468,7 +468,7 @@ new #[Layout('layouts.app')] class extends Component
 
                     <div class="flex justify-end space-x-2 pt-4 border-t">
                         <button type="button" wire:click="$set('mostrarModalAdjudicar', false)" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md text-sm">Cancelar</button>
-                        <button type="button" wire:click="confirmarAdjudicacion(app(\App\Services\CotizacionService::class))" class="px-4 py-2 bg-red-700 hover:bg-red-800 text-white rounded-md text-sm font-semibold">
+                        <button type="button" wire:click="confirmarAdjudicacion" class="px-4 py-2 bg-red-700 hover:bg-red-800 text-white rounded-md text-sm font-semibold">
                             Confirmar Adjudicación
                         </button>
                     </div>

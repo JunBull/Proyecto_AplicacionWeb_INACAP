@@ -175,12 +175,38 @@ new #[Layout('layouts.app')] class extends Component
     {
         Gate::authorize('create', Compra::class);
 
+        $this->validate([
+            'proveedor_id' => 'required|exists:proveedores,id',
+            'carrera_id' => 'required|exists:carreras,id',
+            'numero_documento' => 'required|string|max:100',
+            'fecha' => 'required|date',
+            'items' => 'required|array|min:1',
+            'items.*.descripcion' => 'required|string|min:2',
+            'items.*.cantidad' => 'required|numeric|min:0.01',
+            'items.*.costo_unitario' => 'required|numeric|min:0',
+        ], [
+            'proveedor_id.required' => 'Debe seleccionar un proveedor.',
+            'proveedor_id.exists' => 'El proveedor seleccionado no es válido.',
+            'carrera_id.required' => 'Debe seleccionar una carrera.',
+            'carrera_id.exists' => 'La carrera seleccionada no es válida.',
+            'numero_documento.required' => 'El número de documento o folio es obligatorio.',
+            'fecha.required' => 'La fecha de compra es obligatoria.',
+            'items.required' => 'Debe ingresar al menos una línea de compra.',
+            'items.min' => 'Debe ingresar al menos una línea de compra.',
+            'items.*.descripcion.required' => 'La descripción del ítem es obligatoria.',
+            'items.*.descripcion.min' => 'La descripción debe tener al menos 2 caracteres.',
+            'items.*.cantidad.required' => 'La cantidad es obligatoria.',
+            'items.*.cantidad.min' => 'La cantidad debe ser mayor a 0.',
+            'items.*.costo_unitario.required' => 'El costo unitario es obligatorio.',
+            'items.*.costo_unitario.min' => 'El costo unitario no puede ser negativo.',
+        ]);
+
         try {
             $compraService->registrarCompraEIngreso(
                 [
                     'proveedor_id' => (int) $this->proveedor_id,
                     'carrera_id' => (int) $this->carrera_id,
-                    'numero_documento' => $this->numero_documento,
+                    'numero_documento' => trim($this->numero_documento),
                     'fecha' => $this->fecha,
                     'tipo_documento' => $this->tipo_documento,
                 ],
@@ -189,10 +215,12 @@ new #[Layout('layouts.app')] class extends Component
                 $this->archivoDocumento
             );
 
-            $this->reset(['mostrarModalIngreso', 'archivoDocumento', 'items', 'numero_documento', 'ocrMensaje']);
-            session()->flash('mensaje', 'Compra confirmada, presupuesto debitado e inventario actualizado exitosamente en transacción atómica (PI-01, CP-09, CP-15).');
+            $this->reset(['mostrarModalIngreso', 'archivoDocumento', 'items', 'numero_documento', 'ocrMensaje', 'ocrConfianza']);
+            session()->flash('mensaje', 'Compra confirmada, presupuesto debitado e inventario actualizado exitosamente.');
         } catch (ValidationException $e) {
-            $this->setErrorBag($e->validator->getMessageBag());
+            foreach ($e->errors() as $campo => $mensajes) {
+                $this->addError($campo, $mensajes[0]);
+            }
         } catch (SaldoInsuficienteException $e) {
             $this->addError('presupuesto', $e->getMessage());
         } catch (DocumentoDuplicadoException $e) {
@@ -212,14 +240,14 @@ new #[Layout('layouts.app')] class extends Component
         <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg p-6">
             <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
                 <div>
-                    <h2 class="text-xl font-bold text-gray-800">Proceso 2: Recepción e Ingreso Documental con OCR</h2>
-                    <p class="text-sm text-gray-500">Reconocimiento asistido, supervisión humana innegociable, deducción presupuestaria y kardex atómicos (CP-08, CP-09, CP-10, CP-15, PI-01)</p>
+                    <h2 class="text-xl font-bold text-gray-800">Ingreso por Factura</h2>
+                    <p class="text-sm text-gray-500">Registro de compras, facturas e ingreso de insumos al inventario.</p>
                 </div>
                 <button
                     wire:click="abrirModalIngreso"
-                    class="px-4 py-2 bg-red-700 hover:bg-red-800 text-white font-medium text-sm rounded-md shadow"
+                    class="px-4 py-2 bg-red-700 hover:bg-red-800 text-white font-medium text-sm rounded-md shadow transition"
                 >
-                    + Registrar Ingreso por Factura / OC
+                    + Registrar
                 </button>
             </div>
 
@@ -277,14 +305,24 @@ new #[Layout('layouts.app')] class extends Component
                     <div class="flex justify-between items-center border-b pb-3">
                         <div>
                             <h3 class="text-lg font-bold text-gray-800">
-                                @if($pasoActual === 1) Paso 1: Carga y Reconocimiento Documental (OCR)
-                                @else Paso 2: Revisión, Corrección y Confirmación Manual
+                                @if($pasoActual === 1) Cargar Factura
+                                @else Llenado Manual
                                 @endif
                             </h3>
-                            <p class="text-xs text-gray-500">Regla BPMN Proceso 2: Los datos extraídos por OCR jamás alteran stock ni saldo sin supervisión humana directa (CP-08, CP-09).</p>
                         </div>
                         <button wire:click="$set('mostrarModalIngreso', false)" class="text-gray-400 hover:text-gray-600 text-2xl font-bold">&times;</button>
                     </div>
+
+                    @if ($errors->any())
+                        <div class="p-3 bg-red-50 border-l-4 border-red-600 text-red-800 text-xs rounded space-y-1">
+                            <div class="font-bold">Por favor corrija los siguientes campos:</div>
+                            <ul class="list-disc list-inside">
+                                @foreach ($errors->all() as $error)
+                                    <li>{{ $error }}</li>
+                                @endforeach
+                            </ul>
+                        </div>
+                    @endif
 
                     @error('duplicidad')
                         <div class="p-3 bg-red-100 border-l-4 border-red-600 text-red-800 text-xs rounded">
@@ -308,7 +346,7 @@ new #[Layout('layouts.app')] class extends Component
                                 @if($archivoDocumento)
                                     <p class="text-xs text-green-700 mt-2 font-semibold">Archivo seleccionado: {{ $archivoDocumento->getClientOriginalName() }}</p>
                                 @endif
-                                <p class="text-[11px] text-gray-400 mt-1">El sistema computa el hash SHA-256 para prevenir el procesamiento duplicado del documento (CP-10).</p>
+                                <p class="text-[11px] text-gray-400 mt-1">El sistema verifica la huella del documento para prevenir el registro de duplicados.</p>
                                 @error('archivoDocumento') <span class="block text-xs text-red-600 mt-1">{{ $message }}</span> @enderror
                             </div>
 
@@ -316,22 +354,24 @@ new #[Layout('layouts.app')] class extends Component
                                 <button
                                     type="button"
                                     wire:click="$set('pasoActual', 2)"
-                                    class="text-xs text-gray-600 underline"
+                                    class="text-xs text-gray-600 underline hover:text-gray-900"
                                 >
-                                    Saltar OCR y digitar manualmente
+                                    Saltar y digitar manualmente
                                 </button>
                                 <button
                                     type="button"
-                                    wire:click="procesarOcr(app(\App\Services\OcrService::class))"
-                                    class="px-5 py-2 bg-red-700 hover:bg-red-800 text-white rounded-md text-sm font-semibold"
+                                    wire:click="procesarOcr"
+                                    wire:loading.attr="disabled"
+                                    class="px-5 py-2 bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white rounded-md text-sm font-semibold transition"
                                 >
-                                    Procesar con Motor OCR
+                                    <span wire:loading.remove wire:target="procesarOcr">Enviar</span>
+                                    <span wire:loading wire:target="procesarOcr">Procesando...</span>
                                 </button>
                             </div>
                         </div>
                     @else
-                        <!-- Paso 2: Revisión Humana Innegociable y Asociación al Catálogo -->
-                        <form wire:submit.prevent="confirmarIngresoInventario(app(\App\Services\CompraService::class))" class="space-y-4">
+                        <!-- Paso 2: Llenado Manual y Revisión -->
+                        <form wire:submit="confirmarIngresoInventario" class="space-y-4">
                             @if($ocrMensaje)
                                 <div class="p-3 bg-blue-50 border border-blue-200 text-blue-800 text-xs rounded">
                                     <strong>Estado OCR:</strong> {{ $ocrMensaje }}
@@ -353,7 +393,7 @@ new #[Layout('layouts.app')] class extends Component
                                     @error('proveedor_id') <span class="text-[10px] text-red-600">{{ $message }}</span> @enderror
                                 </div>
                                 <div>
-                                    <label class="block text-[11px] font-bold text-gray-700 uppercase">Carrera (Presupuesto) *</label>
+                                    <label class="block text-[11px] font-bold text-gray-700 uppercase">Carrera *</label>
                                     <select wire:model="carrera_id" class="w-full border-gray-300 rounded text-xs p-1.5">
                                         @foreach(Carrera::where('activa', true)->get() as $c)
                                             <option value="{{ $c->id }}">{{ $c->nombre }}</option>
@@ -369,6 +409,7 @@ new #[Layout('layouts.app')] class extends Component
                                 <div>
                                     <label class="block text-[11px] font-bold text-gray-700 uppercase">Fecha Documento *</label>
                                     <input type="date" wire:model="fecha" class="w-full border-gray-300 rounded text-xs p-1.5" />
+                                    @error('fecha') <span class="text-[10px] text-red-600">{{ $message }}</span> @enderror
                                 </div>
                             </div>
 
@@ -380,40 +421,50 @@ new #[Layout('layouts.app')] class extends Component
                                 </div>
                                 <div class="max-h-60 overflow-y-auto p-2 space-y-2">
                                     @foreach($items as $i => $item)
-                                        <div class="grid grid-cols-12 gap-2 items-center bg-gray-50 p-2 rounded border text-xs">
-                                            <div class="col-span-4">
-                                                <input type="text" wire:model="items.{{ $i }}.descripcion" placeholder="Descripción en factura" class="w-full text-xs p-1 border-gray-300 rounded" />
+                                        <div class="space-y-1">
+                                            <div class="grid grid-cols-12 gap-2 items-center bg-gray-50 p-2 rounded border text-xs">
+                                                <div class="col-span-4">
+                                                    <input type="text" wire:model="items.{{ $i }}.descripcion" placeholder="Descripción en factura *" class="w-full text-xs p-1 border-gray-300 rounded" />
+                                                </div>
+                                                <div class="col-span-3">
+                                                    <select wire:model="items.{{ $i }}.insumo_id" class="w-full text-xs p-1 border-gray-300 rounded">
+                                                        <option value="">(Asociar Insumo)</option>
+                                                        @foreach(Insumo::orderBy('nombre')->get() as $ins)
+                                                            <option value="{{ $ins->id }}">{{ $ins->nombre }} (Stock: {{ (int)$ins->stock_actual }})</option>
+                                                        @endforeach
+                                                    </select>
+                                                </div>
+                                                <div class="col-span-2">
+                                                    <input type="number" step="0.01" wire:model.live="items.{{ $i }}.cantidad" placeholder="Cant. *" class="w-full text-xs p-1 border-gray-300 rounded" title="Cantidad" />
+                                                </div>
+                                                <div class="col-span-2">
+                                                    <input type="number" step="0.01" wire:model.live="items.{{ $i }}.costo_unitario" placeholder="Costo Unit. *" class="w-full text-xs p-1 border-gray-300 rounded" title="Costo Unitario" />
+                                                </div>
+                                                <div class="col-span-1 text-center">
+                                                    <button type="button" wire:click="eliminarLinea({{ $i }})" class="text-red-600 hover:text-red-800 font-bold" title="Eliminar fila">&times;</button>
+                                                </div>
                                             </div>
-                                            <div class="col-span-3">
-                                                <select wire:model="items.{{ $i }}.insumo_id" class="w-full text-xs p-1 border-gray-300 rounded">
-                                                    <option value="">(Asociar Insumo)</option>
-                                                    @foreach(Insumo::orderBy('nombre')->get() as $ins)
-                                                        <option value="{{ $ins->id }}">{{ $ins->nombre }} (Stock: {{ (int)$ins->stock_actual }})</option>
-                                                    @endforeach
-                                                </select>
-                                            </div>
-                                            <div class="col-span-2">
-                                                <input type="number" step="0.01" wire:model="items.{{ $i }}.cantidad" placeholder="Cant." class="w-full text-xs p-1 border-gray-300 rounded" title="Cantidad" />
-                                            </div>
-                                            <div class="col-span-2">
-                                                <input type="number" step="0.01" wire:model="items.{{ $i }}.costo_unitario" placeholder="Costo Unit." class="w-full text-xs p-1 border-gray-300 rounded" title="Costo Unitario" />
-                                            </div>
-                                            <div class="col-span-1 text-center">
-                                                <button type="button" wire:click="eliminarLinea({{ $i }})" class="text-red-600 hover:text-red-800 font-bold">&times;</button>
-                                            </div>
+                                            @error("items.{$i}.descripcion") <span class="text-[10px] text-red-600 block pl-1">{{ $message }}</span> @enderror
+                                            @error("items.{$i}.cantidad") <span class="text-[10px] text-red-600 block pl-1">{{ $message }}</span> @enderror
+                                            @error("items.{$i}.costo_unitario") <span class="text-[10px] text-red-600 block pl-1">{{ $message }}</span> @enderror
                                         </div>
                                     @endforeach
                                 </div>
                                 <div class="bg-gray-100 px-4 py-2 flex justify-between items-center text-xs font-bold text-gray-800">
-                                    <span>Total Compra a Debitar:</span>
+                                    <span>Importe Total:</span>
                                     <span class="text-sm text-red-700">${{ number_format($this->calcularTotalPropuesto(), 0, ',', '.') }}</span>
                                 </div>
                             </div>
 
                             <div class="flex justify-between items-center pt-3 border-t">
-                                <button type="button" wire:click="$set('pasoActual', 1)" class="px-3 py-1.5 bg-gray-200 text-gray-700 text-xs rounded">← Volver al OCR</button>
-                                <button type="submit" class="px-5 py-2 bg-red-700 hover:bg-red-800 text-white rounded text-sm font-semibold">
-                                    Confirmar Ingreso al Inventario y Descontar Presupuesto
+                                <button type="button" wire:click="$set('pasoActual', 1)" class="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs rounded transition">← Volver</button>
+                                <button 
+                                    type="submit" 
+                                    wire:loading.attr="disabled"
+                                    class="px-5 py-2 bg-red-700 hover:bg-red-800 disabled:opacity-50 text-white rounded text-sm font-semibold transition"
+                                >
+                                    <span wire:loading.remove wire:target="confirmarIngresoInventario">Confirmar</span>
+                                    <span wire:loading wire:target="confirmarIngresoInventario">Procesando...</span>
                                 </button>
                             </div>
                         </form>

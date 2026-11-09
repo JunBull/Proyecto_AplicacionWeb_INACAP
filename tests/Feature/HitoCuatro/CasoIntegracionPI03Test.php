@@ -6,8 +6,6 @@ use App\Exceptions\StockInsuficienteException;
 use App\Models\Carrera;
 use App\Models\Entrega;
 use App\Models\Insumo;
-use App\Models\MovimientoInventario;
-use App\Models\SolicitudMaterial;
 use App\Models\Ubicacion;
 use App\Models\User;
 use App\Services\PrestamoService;
@@ -20,12 +18,19 @@ class CasoIntegracionPI03Test extends TestCase
     use RefreshDatabase;
 
     protected Carrera $carrera;
+
     protected Ubicacion $ubicacion;
+
     protected User $docente1;
+
     protected User $docente2;
+
     protected User $docente3;
+
     protected User $panolero;
+
     protected Insumo $insumoConsumible;
+
     protected PrestamoService $prestamoService;
 
     protected function setUp(): void
