@@ -112,7 +112,7 @@ class SolicitudDocenteFlujoTest extends TestCase
             ->call('seleccionarTipoDestino', 'sala')
             ->assertSet('tipo_destino', 'sala')
             ->assertSet('edificio_destino', 'Edificio A')
-            ->assertSet('sala_destino', 'Sala A-101')
+            ->assertSet('sala_destino', 'A101')
             ->assertSet('ubicacion_destino_id', null)
             ->call('seleccionarTipoDestino', 'laboratorio')
             ->assertSet('tipo_destino', 'laboratorio');
@@ -132,7 +132,7 @@ class SolicitudDocenteFlujoTest extends TestCase
             ->set('asignatura_seleccionada', (string) $this->asignatura->id)
             ->set('tipo_destino', 'sala')
             ->set('edificio_destino', 'Edificio A')
-            ->set('sala_destino', 'Sala A-102')
+            ->set('sala_destino', 'A102')
             ->set('itemsSeleccionados', [
                 ['tipo' => 'insumo', 'id' => $this->insumo->id, 'nombre' => $this->insumo->nombre, 'cantidad' => 10.0, 'es_retornable' => false],
             ])
@@ -145,7 +145,7 @@ class SolicitudDocenteFlujoTest extends TestCase
             'asignatura_id' => $this->asignatura->id,
             'tipo_destino' => 'sala',
             'edificio_destino' => 'Edificio A',
-            'espacio_destino' => 'Edificio A - Sala A-102',
+            'espacio_destino' => 'Edificio A - A102',
             'estado' => 'pendiente',
         ]);
     }
@@ -166,7 +166,7 @@ class SolicitudDocenteFlujoTest extends TestCase
             ->set('observaciones', '')
             ->set('tipo_destino', 'sala')
             ->set('edificio_destino', 'Edificio C')
-            ->set('sala_destino', 'Sala C-201')
+            ->set('sala_destino', 'C201')
             ->set('itemsSeleccionados', [
                 ['tipo' => 'insumo', 'id' => $this->insumo->id, 'nombre' => $this->insumo->nombre, 'cantidad' => 5.0, 'es_retornable' => false],
             ])
@@ -182,7 +182,7 @@ class SolicitudDocenteFlujoTest extends TestCase
             ->set('observaciones', 'Taller extracurricular de robótica y sensores')
             ->set('tipo_destino', 'sala')
             ->set('edificio_destino', 'Edificio C')
-            ->set('sala_destino', 'Sala C-201')
+            ->set('sala_destino', 'C201')
             ->set('itemsSeleccionados', [
                 ['tipo' => 'insumo', 'id' => $this->insumo->id, 'nombre' => $this->insumo->nombre, 'cantidad' => 5.0, 'es_retornable' => false],
             ])
@@ -193,7 +193,7 @@ class SolicitudDocenteFlujoTest extends TestCase
             'solicitante_id' => $this->docente->id,
             'asignatura_id' => null,
             'observaciones' => 'Taller extracurricular de robótica y sensores',
-            'espacio_destino' => 'Edificio C - Sala C-201',
+            'espacio_destino' => 'Edificio C - C201',
         ]);
     }
 

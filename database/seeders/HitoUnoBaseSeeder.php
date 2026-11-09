@@ -77,27 +77,25 @@ class HitoUnoBaseSeeder extends Seeder
             ]
         );
 
-        Ubicacion::firstOrCreate(
-            [
-                'carrera_id' => $carreraIng->id,
-                'nombre' => 'Laboratorio L1 - Redes y Telecomunicaciones',
-            ],
-            [
-                'padre_id' => null,
-                'tipo' => 'laboratorio',
-            ]
-        );
+        $laboratoriosReales = [
+            'LTEL', 'LINF', 'LEICA', 'LEICA 2', 'LNET',
+            'C2', 'C8', 'C6',
+            'ALCR', 'ALCS', 'ALPLC', 'ALEP', 'ALCP', 'ALEE', 'ALCE',
+            'MAC1', 'MAC2', 'TD1', 'TD2',
+        ];
 
-        Ubicacion::firstOrCreate(
-            [
-                'carrera_id' => $carreraAp->id,
-                'nombre' => 'Laboratorio L2 - Desarrollo de Software',
-            ],
-            [
-                'padre_id' => null,
-                'tipo' => 'laboratorio',
-            ]
-        );
+        foreach ($laboratoriosReales as $labNombre) {
+            Ubicacion::firstOrCreate(
+                [
+                    'carrera_id' => $carreraIng->id,
+                    'nombre' => $labNombre,
+                ],
+                [
+                    'padre_id' => null,
+                    'tipo' => 'laboratorio',
+                ]
+            );
+        }
 
         // 3. Tres usuarios de prueba para los roles institucionales
         $password = Hash::make('Password123!');

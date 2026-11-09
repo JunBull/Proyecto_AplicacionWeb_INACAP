@@ -29,22 +29,24 @@ new #[Layout('layouts.app')] class extends Component
     public ?int $asignatura_id = null;
     public string $tipo_destino = 'laboratorio'; // 'sala' | 'laboratorio'
     public string $edificio_destino = 'Edificio A'; // 'Edificio A' | 'Edificio C'
-    public string $sala_destino = 'Sala A-101';
+    public string $sala_destino = 'A101';
     public ?int $laboratorio_destino_id = null;
     public ?int $ubicacion_destino_id = null;
     public string $observaciones = '';
     public array $itemsSeleccionados = []; // [['tipo' => 'insumo'|'equipo', 'id' => int, 'nombre' => string, 'cantidad' => float, 'es_retornable' => bool]]
 
     public array $salasEdificioA = [
-        'Sala A-101', 'Sala A-102', 'Sala A-103',
-        'Sala A-201', 'Sala A-202', 'Sala A-203',
-        'Sala A-301', 'Sala A-302',
+        'A101', 'A102', 'A103', 'A104', 'A105', 'A106',
+        'A201', 'A202', 'A203', 'A204', 'A205', 'A206', 'A207', 'A208',
+        'A301', 'A302', 'A303', 'A304', 'A305', 'A306', 'A307', 'A308', 'A309', 'A310', 'A311', 'A312', 'A313', 'A314', 'A315', 'A316',
+        'A401', 'A402', 'A403', 'A404', 'A405', 'A406', 'A407',
     ];
 
     public array $salasEdificioC = [
-        'Sala C-101', 'Sala C-102', 'Sala C-103',
-        'Sala C-201', 'Sala C-202', 'Sala C-203',
-        'Sala C-301', 'Sala C-302',
+        'C101', 'C102',
+        'C201', 'C202', 'C203', 'C204', 'C205', 'C206', 'C207', 'C208', 'C209', 'C210',
+        'C301', 'C302', 'C303', 'C304', 'C305', 'C306', 'C307', 'C308', 'C309', 'C310', 'C311', 'C312', 'C313', 'C314',
+        'C401', 'C407',
     ];
 
     public function seleccionarTipoDestino(string $tipo): void
@@ -52,7 +54,7 @@ new #[Layout('layouts.app')] class extends Component
         $this->tipo_destino = $tipo;
         if ($tipo === 'sala') {
             $this->edificio_destino = 'Edificio A';
-            $this->sala_destino = 'Sala A-101';
+            $this->sala_destino = 'A101';
             $this->ubicacion_destino_id = null;
         } else {
             $primerLab = Ubicacion::where('tipo', 'laboratorio')->first() ?? Ubicacion::first();
@@ -76,9 +78,9 @@ new #[Layout('layouts.app')] class extends Component
     public function updatedEdificioDestino(string $valor): void
     {
         if ($valor === 'Edificio A') {
-            $this->sala_destino = 'Sala A-101';
+            $this->sala_destino = 'A101';
         } else {
-            $this->sala_destino = 'Sala C-101';
+            $this->sala_destino = 'C101';
         }
     }
 
@@ -151,7 +153,7 @@ new #[Layout('layouts.app')] class extends Component
         $this->asignatura_id = $primerAsig?->id;
         $this->tipo_destino = 'laboratorio';
         $this->edificio_destino = 'Edificio A';
-        $this->sala_destino = 'Sala A-101';
+        $this->sala_destino = 'A101';
         $primerLab = Ubicacion::where('tipo', 'laboratorio')->first() ?? Ubicacion::first();
         $this->laboratorio_destino_id = $primerLab?->id;
         $this->ubicacion_destino_id = $primerLab?->id;
@@ -938,7 +940,7 @@ new #[Layout('layouts.app')] class extends Component
                                     <label class="text-[11px] font-semibold text-gray-600">
                                         Laboratorio <span class="text-red-500">*</span>
                                     </label>
-                                    <span class="text-[10px] text-gray-500 italic">(Todos los laboratorios están en el Edificio A)</span>
+                                    <span class="text-[10px] text-gray-500 italic">(Sede INACAP Temuco)</span>
                                 </div>
                                 <select
                                     wire:model="ubicacion_destino_id"

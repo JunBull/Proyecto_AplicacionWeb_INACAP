@@ -85,7 +85,7 @@ class DatosOperativosDemoSeeder extends Seeder
         $cajonRed = Ubicacion::where('nombre', 'like', '%Cables y Conectores%')->first();
         $cajonSensores = Ubicacion::where('nombre', 'like', '%Microcontroladores%')->first();
         $estante = Ubicacion::where('nombre', 'like', '%Estante Metálico A%')->first();
-        $labRedes = Ubicacion::where('nombre', 'like', '%Laboratorio L1%')->first();
+        $labRedes = Ubicacion::where('nombre', 'LTEL')->orWhere('nombre', 'like', '%Laboratorio%')->first();
 
         $ubicacionDefecto = $cajonRed?->id ?? Ubicacion::first()->id;
 
