@@ -138,7 +138,7 @@ new #[Layout('layouts.app')] class extends Component
 
     public function laboratoriosDisponibles()
     {
-        return Ubicacion::whereIn('tipo', ['laboratorio', 'panol'])->orWhereNull('padre_id')->orderBy('nombre')->get();
+        return Ubicacion::where('tipo', 'laboratorio')->orderBy('nombre')->get();
     }
 
     public function abrirModalCrear(): void

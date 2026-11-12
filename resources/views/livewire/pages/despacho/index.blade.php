@@ -1468,8 +1468,8 @@ new #[Layout('layouts.app')] class extends Component
                                     wire:model="presencialUbicacionId"
                                     class="w-full text-xs border-slate-300 rounded-lg focus:ring-red-600 focus:border-red-600"
                                 >
-                                    @foreach(\App\Models\Ubicacion::whereIn('tipo', ['laboratorio', 'panol'])->orWhereNull('padre_id')->orderBy('nombre')->get() as $u)
-                                        <option value="{{ $u->id }}">{{ $u->nombre }} ({{ ucfirst($u->tipo) }})</option>
+                                    @foreach(\App\Models\Ubicacion::where('tipo', 'laboratorio')->orderBy('nombre')->get() as $u)
+                                        <option value="{{ $u->id }}">{{ $u->nombre }}</option>
                                     @endforeach
                                 </select>
                             </div>
