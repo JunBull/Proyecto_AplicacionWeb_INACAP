@@ -57,6 +57,9 @@ class FallaService
      *     equipo_id?: ?int,
      *     insumo_id?: ?int,
      *     ubicacion_id?: ?int,
+     *     tipo_destino?: ?string,
+     *     edificio_destino?: ?string,
+     *     espacio_destino?: ?string,
      *     descripcion: string,
      *     severidad?: ?string
      * } $datos
@@ -74,6 +77,9 @@ class FallaService
         $equipoId = ! empty($datos['equipo_id']) ? (int) $datos['equipo_id'] : null;
         $insumoId = ! empty($datos['insumo_id']) ? (int) $datos['insumo_id'] : null;
         $ubicacionId = ! empty($datos['ubicacion_id']) ? (int) $datos['ubicacion_id'] : null;
+        $tipoDestino = ! empty($datos['tipo_destino']) ? (string) $datos['tipo_destino'] : null;
+        $edificioDestino = ! empty($datos['edificio_destino']) ? (string) $datos['edificio_destino'] : null;
+        $espacioDestino = ! empty($datos['espacio_destino']) ? (string) $datos['espacio_destino'] : null;
 
         if ($tipoItem === 'equipo' && ! $equipoId) {
             throw ValidationException::withMessages([
@@ -94,7 +100,7 @@ class FallaService
             ]);
         }
 
-        return DB::transaction(function () use ($informante, $equipoId, $insumoId, $ubicacionId, $descripcionLimpia) {
+        return DB::transaction(function () use ($informante, $equipoId, $insumoId, $ubicacionId, $tipoDestino, $edificioDestino, $espacioDestino, $descripcionLimpia) {
             if ($equipoId !== null) {
                 /** @var Equipo $equipo */
                 $equipo = Equipo::where('id', $equipoId)->lockForUpdate()->firstOrFail();
@@ -115,6 +121,9 @@ class FallaService
                 'equipo_id' => $equipoId,
                 'insumo_id' => $insumoId,
                 'ubicacion_id' => $ubicacionId,
+                'tipo_destino' => $tipoDestino,
+                'edificio_destino' => $edificioDestino,
+                'espacio_destino' => $espacioDestino,
                 'reportada_por' => $informante->id,
                 'atendida_por' => null,
                 'descripcion' => $descripcionLimpia,

@@ -103,4 +103,33 @@ class InformeNovedadesTest extends TestCase
             'estado' => 'en_mantenimiento',
         ]);
     }
+
+    public function test_docente_puede_reportar_novedad_en_sala_con_edificio_y_sala_especifica(): void
+    {
+        Queue::fake();
+
+        $this->actingAs($this->docente);
+
+        Volt::test('pages.docente.novedades')
+            ->call('abrirModalReporte')
+            ->set('tipoItem', 'equipo')
+            ->set('equipoId', $this->equipo->id)
+            ->call('seleccionarTipoDestino', 'sala')
+            ->set('edificio_destino', 'Edificio C')
+            ->set('sala_destino', 'C101')
+            ->set('descripcion', 'Proyector con parpadeo y falla intermitente en la sala de clases.')
+            ->set('severidad', 'media')
+            ->call('registrarNovedad')
+            ->assertHasNoErrors()
+            ->assertSee('¡Novedad');
+
+        $this->assertDatabaseHas('fallas', [
+            'equipo_id' => $this->equipo->id,
+            'reportada_por' => $this->docente->id,
+            'tipo_destino' => 'sala',
+            'edificio_destino' => 'Edificio C',
+            'espacio_destino' => 'Edificio C - C101',
+            'descripcion' => 'Proyector con parpadeo y falla intermitente en la sala de clases.',
+        ]);
+    }
 }

@@ -202,6 +202,13 @@ new #[Layout('layouts.app')] class extends Component
         ]);
 
         try {
+            $itemsNormalizados = [];
+            foreach ($this->items as $item) {
+                $itemsNormalizados[] = array_merge($item, [
+                    'costo_unitario' => (float) \App\Services\FormatoHelper::sanitizarMontoEntero($item['costo_unitario'] ?? 0),
+                ]);
+            }
+
             $compraService->registrarCompraEIngreso(
                 [
                     'proveedor_id' => (int) $this->proveedor_id,
@@ -210,7 +217,7 @@ new #[Layout('layouts.app')] class extends Component
                     'fecha' => $this->fecha,
                     'tipo_documento' => $this->tipo_documento,
                 ],
-                $this->items,
+                $itemsNormalizados,
                 Auth::user(),
                 $this->archivoDocumento
             );
@@ -394,11 +401,20 @@ new #[Layout('layouts.app')] class extends Component
                                 </div>
                                 <div>
                                     <label class="block text-[11px] font-bold text-gray-700 uppercase">Carrera *</label>
-                                    <select wire:model="carrera_id" class="w-full border-gray-300 rounded text-xs p-1.5">
+                                    <select wire:model.live="carrera_id" class="w-full border-gray-300 rounded text-xs p-1.5">
                                         @foreach(Carrera::where('activa', true)->get() as $c)
                                             <option value="{{ $c->id }}">{{ $c->nombre }}</option>
                                         @endforeach
                                     </select>
+                                    @php
+                                        $carreraSeleccionada = $carrera_id ? Carrera::find($carrera_id) : null;
+                                        $saldoCarrera = $carreraSeleccionada ? app(\App\Services\PresupuestoService::class)->consultarSaldo($carreraSeleccionada, (int) date('Y', strtotime($fecha ?: 'now'))) : null;
+                                    @endphp
+                                    @if($saldoCarrera !== null)
+                                        <span class="text-[10px] text-emerald-700 font-bold block mt-0.5">
+                                            Saldo disponible: ${{ number_format($saldoCarrera, 0, ',', '.') }}
+                                        </span>
+                                    @endif
                                     @error('carrera_id') <span class="text-[10px] text-red-600">{{ $message }}</span> @enderror
                                 </div>
                                 <div>
@@ -438,7 +454,7 @@ new #[Layout('layouts.app')] class extends Component
                                                     <input type="number" step="0.01" wire:model.live="items.{{ $i }}.cantidad" placeholder="Cant. *" class="w-full text-xs p-1 border-gray-300 rounded" title="Cantidad" />
                                                 </div>
                                                 <div class="col-span-2">
-                                                    <input type="number" step="0.01" wire:model.live="items.{{ $i }}.costo_unitario" placeholder="Costo Unit. *" class="w-full text-xs p-1 border-gray-300 rounded" title="Costo Unitario" />
+                                                    <input type="number" step="1" min="0" onkeydown="if(event.key === '.' || event.key === ',' || event.key === 'e' || event.key === 'E' || event.key === '-') event.preventDefault();" oninput="this.value = this.value.replace(/[^0-9]/g, '')" wire:model.live="items.{{ $i }}.costo_unitario" placeholder="Costo Unit. *" class="w-full text-xs p-1 border-gray-300 rounded" title="Costo Unitario (CLP sin decimales)" />
                                                 </div>
                                                 <div class="col-span-1 text-center">
                                                     <button type="button" wire:click="eliminarLinea({{ $i }})" class="text-red-600 hover:text-red-800 font-bold" title="Eliminar fila">&times;</button>

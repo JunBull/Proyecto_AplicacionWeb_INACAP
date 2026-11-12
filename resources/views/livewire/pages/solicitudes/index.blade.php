@@ -111,6 +111,9 @@ new #[Layout('layouts.app')] class extends Component
     public ?int $incidenciaEquipoId = null;
     public ?int $incidenciaInsumoId = null;
     public ?int $incidenciaUbicacionId = null;
+    public string $incidenciaTipoDestino = 'laboratorio';
+    public string $incidenciaEdificioDestino = 'Edificio A';
+    public string $incidenciaSalaDestino = 'A101';
     public string $incidenciaDescripcion = '';
     public string $incidenciaSeveridad = 'media';
 
@@ -167,6 +170,9 @@ new #[Layout('layouts.app')] class extends Component
         $this->tipoIncidencia = 'equipo';
         $this->incidenciaEquipoId = Equipo::first()?->id;
         $this->incidenciaInsumoId = Insumo::first()?->id;
+        $this->incidenciaTipoDestino = 'laboratorio';
+        $this->incidenciaEdificioDestino = 'Edificio A';
+        $this->incidenciaSalaDestino = 'A101';
         $primerLab = Ubicacion::where('tipo', 'laboratorio')->first() ?? Ubicacion::first();
         $this->incidenciaUbicacionId = $primerLab?->id;
         $this->incidenciaDescripcion = '';
@@ -174,23 +180,72 @@ new #[Layout('layouts.app')] class extends Component
         $this->mostrarModalIncidencia = true;
     }
 
+    public function seleccionarTipoDestinoIncidencia(string $tipo): void
+    {
+        $this->incidenciaTipoDestino = $tipo;
+        if ($tipo === 'sala') {
+            $this->incidenciaEdificioDestino = 'Edificio A';
+            $this->incidenciaSalaDestino = 'A101';
+        } else {
+            $primerLab = Ubicacion::where('tipo', 'laboratorio')->first() ?? Ubicacion::first();
+            $this->incidenciaUbicacionId = $primerLab?->id;
+        }
+    }
+
+    public function updatedIncidenciaEdificioDestino(string $valor): void
+    {
+        if ($valor === 'Edificio A') {
+            $this->incidenciaSalaDestino = 'A101';
+        } else {
+            $this->incidenciaSalaDestino = 'C101';
+        }
+    }
+
     public function registrarIncidencia(FallaService $fallaService): void
     {
-        $this->validate([
+        $reglas = [
             'incidenciaDescripcion' => 'required|string|min:10',
-            'incidenciaUbicacionId' => 'required|exists:ubicaciones,id',
-        ], [
+            'incidenciaTipoDestino' => 'required|in:sala,laboratorio',
+        ];
+        $mensajes = [
             'incidenciaDescripcion.required' => 'Debe ingresar una descripción detallada de la anomalía técnica.',
             'incidenciaDescripcion.min' => 'La descripción debe tener al menos 10 caracteres.',
-            'incidenciaUbicacionId.required' => 'Debe indicar el laboratorio o sala donde se detectó el desperfecto.',
-        ]);
+            'incidenciaTipoDestino.required' => 'Debe indicar si la incidencia se detectó en SALA o LABORATORIO.',
+        ];
+
+        if ($this->incidenciaTipoDestino === 'sala') {
+            $reglas['incidenciaEdificioDestino'] = 'required|in:Edificio A,Edificio C';
+            $reglas['incidenciaSalaDestino'] = 'required|string';
+            $mensajes['incidenciaEdificioDestino.required'] = 'Debe seleccionar un edificio para la sala.';
+            $mensajes['incidenciaSalaDestino.required'] = 'Debe seleccionar la sala de destino.';
+        } else {
+            $reglas['incidenciaUbicacionId'] = 'required|exists:ubicaciones,id';
+            $mensajes['incidenciaUbicacionId.required'] = 'Debe indicar el laboratorio o sala donde se detectó el desperfecto.';
+        }
+
+        $this->validate($reglas, $mensajes);
+
+        $espacioDestino = null;
+        $ubicacionFinalId = null;
+
+        if ($this->incidenciaTipoDestino === 'sala') {
+            $espacioDestino = "{$this->incidenciaEdificioDestino} - {$this->incidenciaSalaDestino}";
+            $ubicacionFinalId = null;
+        } else {
+            $lab = Ubicacion::find($this->incidenciaUbicacionId);
+            $ubicacionFinalId = $lab?->id;
+            $espacioDestino = $lab ? $lab->nombre : 'Laboratorio';
+        }
 
         try {
             $falla = $fallaService->reportarIncidencia(Auth::user(), [
                 'tipo_item' => $this->tipoIncidencia,
                 'equipo_id' => $this->tipoIncidencia === 'equipo' ? $this->incidenciaEquipoId : null,
                 'insumo_id' => $this->tipoIncidencia === 'insumo' ? $this->incidenciaInsumoId : null,
-                'ubicacion_id' => $this->incidenciaUbicacionId,
+                'ubicacion_id' => $ubicacionFinalId,
+                'tipo_destino' => $this->incidenciaTipoDestino,
+                'edificio_destino' => $this->incidenciaTipoDestino === 'sala' ? $this->incidenciaEdificioDestino : null,
+                'espacio_destino' => $espacioDestino,
                 'descripcion' => $this->incidenciaDescripcion,
                 'severidad' => $this->incidenciaSeveridad,
             ]);
@@ -1303,27 +1358,104 @@ new #[Layout('layouts.app')] class extends Component
                         </div>
                     @endif
 
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <!-- Ubicación / Sala donde se detectó -->
+                    <!-- Selector Multinivel de Destino / Dónde se detectó la novedad (SALA vs LABORATORIO) -->
+                    <div class="p-3 bg-gray-50/90 rounded-xl border border-gray-200 space-y-3">
                         <div>
-                            <label class="block font-semibold text-slate-700 mb-1">Laboratorio / Taller *</label>
-                            <select wire:model="incidenciaUbicacionId" class="w-full text-xs sm:text-sm rounded-lg border-slate-300 focus:border-amber-500 focus:ring-amber-500">
-                                @foreach($this->laboratoriosDisponibles() as $lab)
-                                    <option value="{{ $lab->id }}">{{ $lab->nombre }}</option>
-                                @endforeach
-                            </select>
-                            @error('incidenciaUbicacionId') <span class="text-[11px] text-red-600 font-semibold">{{ $message }}</span> @enderror
+                            <label class="block text-xs font-semibold text-gray-700 mb-1.5">
+                                Sala / Laboratorio de Destino <span class="text-amber-600">*</span>
+                            </label>
+                            <div class="grid grid-cols-2 gap-2">
+                                <button
+                                    type="button"
+                                    wire:click="seleccionarTipoDestinoIncidencia('sala')"
+                                    class="py-2 px-3 text-xs font-semibold rounded-lg border text-center transition {{ $incidenciaTipoDestino === 'sala' ? 'bg-amber-600 text-white border-amber-600 shadow-xs hover:bg-amber-700' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100' }}"
+                                >
+                                    SALA
+                                </button>
+                                <button
+                                    type="button"
+                                    wire:click="seleccionarTipoDestinoIncidencia('laboratorio')"
+                                    class="py-2 px-3 text-xs font-semibold rounded-lg border text-center transition {{ $incidenciaTipoDestino === 'laboratorio' ? 'bg-amber-600 text-white border-amber-600 shadow-xs hover:bg-amber-700' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100' }}"
+                                >
+                                    LABORATORIO
+                                </button>
+                            </div>
+                            @error('incidenciaTipoDestino')
+                                <p class="text-[11px] text-red-600 mt-1 font-semibold">{{ $message }}</p>
+                            @enderror
                         </div>
 
-                        <!-- Severidad -->
-                        <div>
-                            <label class="block font-semibold text-slate-700 mb-1">Nivel de Severidad</label>
-                            <select wire:model="incidenciaSeveridad" class="w-full text-xs sm:text-sm rounded-lg border-slate-300 focus:border-amber-500 focus:ring-amber-500">
-                                <option value="baja">Baja (Anomalía estética o menor)</option>
-                                <option value="media">Media (Falla parcial / funcional)</option>
-                                <option value="alta">Alta (Equipo inoperativo / riesgo eléctrico)</option>
-                            </select>
-                        </div>
+                        @if($incidenciaTipoDestino === 'sala')
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-gray-200/70">
+                                <div>
+                                    <label class="block text-[11px] font-semibold text-gray-600 mb-1">
+                                        Edificio <span class="text-amber-600">*</span>
+                                    </label>
+                                    <select
+                                        wire:model.live="incidenciaEdificioDestino"
+                                        class="w-full text-xs border-gray-300 rounded-lg focus:ring-amber-500 focus:border-amber-500"
+                                    >
+                                        <option value="Edificio A">Edificio A</option>
+                                        <option value="Edificio C">Edificio C</option>
+                                    </select>
+                                    @error('incidenciaEdificioDestino')
+                                        <p class="text-[11px] text-red-600 mt-1 font-semibold">{{ $message }}</p>
+                                    @enderror
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold text-gray-600 mb-1">
+                                        Sala ({{ $incidenciaEdificioDestino }}) <span class="text-amber-600">*</span>
+                                    </label>
+                                    <select
+                                        wire:model="incidenciaSalaDestino"
+                                        class="w-full text-xs border-gray-300 rounded-lg focus:ring-amber-500 focus:border-amber-500"
+                                    >
+                                        @if($incidenciaEdificioDestino === 'Edificio A')
+                                            @foreach($salasEdificioA as $sala)
+                                                <option value="{{ $sala }}">{{ $sala }}</option>
+                                            @endforeach
+                                        @else
+                                            @foreach($salasEdificioC as $sala)
+                                                <option value="{{ $sala }}">{{ $sala }}</option>
+                                            @endforeach
+                                        @endif
+                                    </select>
+                                    @error('incidenciaSalaDestino')
+                                        <p class="text-[11px] text-red-600 mt-1 font-semibold">{{ $message }}</p>
+                                    @enderror
+                                </div>
+                            </div>
+                        @else
+                            <div class="pt-1 border-t border-gray-200/70">
+                                <div class="flex items-center justify-between mb-1">
+                                    <label class="text-[11px] font-semibold text-gray-600">
+                                        Laboratorio / Taller <span class="text-amber-600">*</span>
+                                    </label>
+                                    <span class="text-[10px] text-gray-500 italic">(Sede INACAP Temuco)</span>
+                                </div>
+                                <select
+                                    wire:model="incidenciaUbicacionId"
+                                    class="w-full text-xs border-gray-300 rounded-lg focus:ring-amber-500 focus:border-amber-500"
+                                >
+                                    @foreach($this->laboratoriosDisponibles() as $lab)
+                                        <option value="{{ $lab->id }}">{{ $lab->nombre }}</option>
+                                    @endforeach
+                                </select>
+                                @error('incidenciaUbicacionId')
+                                    <p class="text-[11px] text-red-600 mt-1 font-semibold">{{ $message }}</p>
+                                @enderror
+                            </div>
+                        @endif
+                    </div>
+
+                    <!-- Severidad -->
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">Nivel de Severidad *</label>
+                        <select wire:model="incidenciaSeveridad" class="w-full text-xs sm:text-sm rounded-lg border-slate-300 focus:border-amber-500 focus:ring-amber-500">
+                            <option value="baja">Baja (Anomalía estética o menor)</option>
+                            <option value="media">Media (Falla parcial / funcional)</option>
+                            <option value="alta">Alta (Equipo inoperativo / riesgo eléctrico)</option>
+                        </select>
                     </div>
 
                     <!-- Descripción del desperfecto -->

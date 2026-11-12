@@ -120,7 +120,7 @@ new #[Layout('layouts.app')] class extends Component
             $service->registrarCotizacion(
                 $solicitud,
                 $proveedor,
-                (float) $this->montoCotizacion,
+                (float) \App\Services\FormatoHelper::sanitizarMontoEntero($this->montoCotizacion),
                 $this->fechaRecepcion,
                 $this->archivoCotizacion,
                 Auth::user()
@@ -402,8 +402,17 @@ new #[Layout('layouts.app')] class extends Component
 
                         <div class="grid grid-cols-2 gap-4">
                             <div>
-                                <label class="block text-xs font-semibold text-gray-700 uppercase">Monto Total Ofertado ($) *</label>
-                                <input type="number" step="0.01" wire:model="montoCotizacion" class="w-full border-gray-300 rounded-md shadow-sm text-sm" placeholder="Ej. 250000" />
+                                <label class="block text-xs font-semibold text-gray-700 uppercase">Monto Total Ofertado ($ CLP sin decimales) *</label>
+                                <input
+                                    type="number"
+                                    step="1"
+                                    min="0"
+                                    onkeydown="if(event.key === '.' || event.key === ',' || event.key === 'e' || event.key === 'E' || event.key === '-') event.preventDefault();"
+                                    oninput="this.value = this.value.replace(/[^0-9]/g, '')"
+                                    wire:model="montoCotizacion"
+                                    class="w-full border-gray-300 rounded-md shadow-sm text-sm"
+                                    placeholder="Ej. 250000"
+                                />
                                 @error('montoCotizacion') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
                             </div>
                             <div>

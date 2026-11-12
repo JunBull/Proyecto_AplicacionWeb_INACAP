@@ -84,12 +84,61 @@ class PanoleroPrestamosFlujoTest extends TestCase
         $response = $this->get(route('panol.despacho'));
         $response->assertOk();
         $response->assertSee('Préstamos');
-        $response->assertSee('+ Préstamo Alumno');
+        $response->assertSee('Préstamo Alumno');
+        $response->assertDontSee('+ Préstamo Alumno');
         $response->assertDontSee('Revisión de solicitudes anticipadas, control de entregas');
 
         // Formato amigable de rol en navbar
         $response->assertSee('Pañolero');
         $response->assertDontSee('ENCARGADO_PANOL');
+    }
+
+    public function test_modal_prestamo_alumno_permite_elegir_sala_o_laboratorio(): void
+    {
+        $this->actingAs($this->panolero);
+
+        // Crear equipo adicional con el mismo nombre para superar el piso de reserva docente
+        Equipo::create([
+            'codigo_barras' => 'EQ-TEST-002',
+            'nombre' => 'Notebook Dell Latitude',
+            'marca' => 'Dell',
+            'modelo' => '5420',
+            'numero_serie' => 'SN-DELL-002',
+            'estado' => 'disponible',
+            'ubicacion_id' => $this->panol->id,
+            'reservado_clases' => false,
+        ]);
+
+        // Alumno solicita en mesón para Sala en Edificio C
+        $component = Volt::test('pages.despacho.index')
+            ->call('abrirModalPresencial')
+            ->assertSee('Sala / Laboratorio de Destino')
+            ->assertSee('SALA')
+            ->assertSee('LABORATORIO')
+            ->assertSet('presencialTipoDestino', 'laboratorio')
+            ->call('seleccionarTipoDestinoPresencial', 'sala')
+            ->assertSet('presencialTipoDestino', 'sala')
+            ->assertSet('presencialEdificioDestino', 'Edificio A')
+            ->set('presencialEdificioDestino', 'Edificio C')
+            ->assertSet('presencialSalaDestino', 'C101')
+            ->set('presencialNombre', 'Carlos Alumno Test')
+            ->set('presencialRut', '20.123.456-7')
+            ->set('presencialCredencialVerificada', true)
+            ->set('presencialHoraDevolucion', '17:00')
+            ->call('agregarItemPresencial', 'equipo', $this->equipo->id)
+            ->call('confirmarPrestamoPresencial')
+            ->assertHasNoErrors();
+
+        $this->assertDatabaseHas('solicitudes_material', [
+            'tipo_destino' => 'sala',
+            'edificio_destino' => 'Edificio C',
+            'espacio_destino' => 'Edificio C - C101',
+        ]);
+
+        $this->assertDatabaseHas('entregas', [
+            'receptor_nombre' => 'Carlos Alumno Test',
+            'receptor_credencial_rut' => '20.123.456-7',
+        ]);
     }
 
     public function test_tabs_abiertas_vencidas_e_historial_con_buscador_reactivo(): void

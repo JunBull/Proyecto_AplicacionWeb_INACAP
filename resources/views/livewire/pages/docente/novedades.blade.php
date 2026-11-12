@@ -15,9 +15,26 @@ new #[Layout('layouts.app')] class extends Component {
     public ?int $equipoId = null;
     public ?int $insumoId = null;
     public ?int $ubicacionId = null;
+    public string $tipo_destino = 'laboratorio'; // 'sala' | 'laboratorio'
+    public string $edificio_destino = 'Edificio A'; // 'Edificio A' | 'Edificio C'
+    public string $sala_destino = 'A101';
     public string $descripcion = '';
     public string $severidad = 'media';
     public string $filtroEstado = 'todos';
+
+    public array $salasEdificioA = [
+        'A101', 'A102', 'A103', 'A104', 'A105', 'A106',
+        'A201', 'A202', 'A203', 'A204', 'A205', 'A206', 'A207', 'A208',
+        'A301', 'A302', 'A303', 'A304', 'A305', 'A306', 'A307', 'A308', 'A309', 'A310', 'A311', 'A312', 'A313', 'A314', 'A315', 'A316',
+        'A401', 'A402', 'A403', 'A404', 'A405', 'A406', 'A407',
+    ];
+
+    public array $salasEdificioC = [
+        'C101', 'C102',
+        'C201', 'C202', 'C203', 'C204', 'C205', 'C206', 'C207', 'C208', 'C209', 'C210',
+        'C301', 'C302', 'C303', 'C304', 'C305', 'C306', 'C307', 'C308', 'C309', 'C310', 'C311', 'C312', 'C313', 'C314',
+        'C401', 'C407',
+    ];
 
     public function mount(): void
     {
@@ -29,10 +46,34 @@ new #[Layout('layouts.app')] class extends Component {
         $this->tipoItem = 'equipo';
         $this->equipoId = Equipo::first()?->id;
         $this->insumoId = Insumo::first()?->id;
+        $this->tipo_destino = 'laboratorio';
+        $this->edificio_destino = 'Edificio A';
+        $this->sala_destino = 'A101';
         $primerLab = Ubicacion::where('tipo', 'laboratorio')->first() ?? Ubicacion::first();
         $this->ubicacionId = $primerLab?->id;
         $this->descripcion = '';
         $this->severidad = 'media';
+    }
+
+    public function seleccionarTipoDestino(string $tipo): void
+    {
+        $this->tipo_destino = $tipo;
+        if ($tipo === 'sala') {
+            $this->edificio_destino = 'Edificio A';
+            $this->sala_destino = 'A101';
+        } else {
+            $primerLab = Ubicacion::where('tipo', 'laboratorio')->first() ?? Ubicacion::first();
+            $this->ubicacionId = $primerLab?->id;
+        }
+    }
+
+    public function updatedEdificioDestino(string $valor): void
+    {
+        if ($valor === 'Edificio A') {
+            $this->sala_destino = 'A101';
+        } else {
+            $this->sala_destino = 'C101';
+        }
     }
 
     public function abrirModalReporte(): void
@@ -50,21 +91,50 @@ new #[Layout('layouts.app')] class extends Component {
 
     public function registrarNovedad(FallaService $fallaService): void
     {
-        $this->validate([
+        $reglas = [
             'descripcion' => 'required|string|min:10',
-            'ubicacionId' => 'required|exists:ubicaciones,id',
-        ], [
+            'tipo_destino' => 'required|in:sala,laboratorio',
+        ];
+
+        $mensajes = [
             'descripcion.required' => 'Debe ingresar una descripción detallada de la novedad o desperfecto técnico.',
             'descripcion.min' => 'La descripción debe tener al menos 10 caracteres.',
-            'ubicacionId.required' => 'Debe indicar el laboratorio o sala donde se detectó la novedad.',
-        ]);
+            'tipo_destino.required' => 'Debe indicar si la novedad se detectó en SALA o LABORATORIO.',
+        ];
+
+        if ($this->tipo_destino === 'sala') {
+            $reglas['edificio_destino'] = 'required|in:Edificio A,Edificio C';
+            $reglas['sala_destino'] = 'required|string';
+            $mensajes['edificio_destino.required'] = 'Debe seleccionar un edificio para la sala.';
+            $mensajes['sala_destino.required'] = 'Debe seleccionar la sala donde se detectó la novedad.';
+        } else {
+            $reglas['ubicacionId'] = 'required|exists:ubicaciones,id';
+            $mensajes['ubicacionId.required'] = 'Debe indicar el laboratorio o sala donde se detectó la novedad.';
+        }
+
+        $this->validate($reglas, $mensajes);
+
+        $espacioDestino = null;
+        $ubicacionFinalId = null;
+
+        if ($this->tipo_destino === 'sala') {
+            $espacioDestino = "{$this->edificio_destino} - {$this->sala_destino}";
+            $ubicacionFinalId = null;
+        } else {
+            $lab = Ubicacion::find($this->ubicacionId);
+            $ubicacionFinalId = $lab?->id;
+            $espacioDestino = $lab ? $lab->nombre : 'Laboratorio';
+        }
 
         try {
             $falla = $fallaService->reportarIncidencia(Auth::user(), [
                 'tipo_item' => $this->tipoItem,
                 'equipo_id' => $this->tipoItem === 'equipo' ? $this->equipoId : null,
                 'insumo_id' => $this->tipoItem === 'insumo' ? $this->insumoId : null,
-                'ubicacion_id' => $this->ubicacionId,
+                'ubicacion_id' => $ubicacionFinalId,
+                'tipo_destino' => $this->tipo_destino,
+                'edificio_destino' => $this->tipo_destino === 'sala' ? $this->edificio_destino : null,
+                'espacio_destino' => $espacioDestino,
                 'descripcion' => $this->descripcion,
                 'severidad' => $this->severidad,
             ]);
@@ -92,7 +162,7 @@ new #[Layout('layouts.app')] class extends Component {
 
     public function laboratoriosDisponibles()
     {
-        return Ubicacion::whereIn('tipo', ['laboratorio', 'taller', 'panol'])->orderBy('nombre')->get();
+        return Ubicacion::where('tipo', 'laboratorio')->orderBy('nombre')->get();
     }
 
     public function equiposDisponibles()
@@ -291,7 +361,7 @@ new #[Layout('layouts.app')] class extends Component {
                             </p>
 
                             <div class="mt-3 text-[11px] text-slate-400 flex flex-col sm:flex-row sm:items-center justify-between gap-1 border-t border-slate-50 pt-2">
-                                <span>Laboratorio / Ubicación: <strong class="text-slate-700">{{ $inc->ubicacion?->nombre ?? 'Pañol Central' }}</strong></span>
+                                <span>Laboratorio / Ubicación: <strong class="text-slate-700">{{ $inc->espacio_destino ?: ($inc->ubicacion?->nombre ?? 'Pañol Central') }}</strong></span>
                                 <span>Reportado por: <strong class="text-slate-700">{{ $inc->reportador?->name }}</strong></span>
                             </div>
                         </div>
@@ -366,27 +436,104 @@ new #[Layout('layouts.app')] class extends Component {
                         </div>
                     @endif
 
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <!-- Ubicación / Sala donde se detectó -->
+                    <!-- Selector Multinivel de Destino / Dónde se detectó la novedad (SALA vs LABORATORIO) -->
+                    <div class="p-3 bg-gray-50/90 rounded-xl border border-gray-200 space-y-3">
                         <div>
-                            <label class="block font-semibold text-slate-700 mb-1">Laboratorio / Taller *</label>
-                            <select wire:model="ubicacionId" class="w-full text-xs sm:text-sm rounded-lg border-slate-300 focus:border-amber-500 focus:ring-amber-500">
-                                @foreach($this->laboratoriosDisponibles() as $lab)
-                                    <option value="{{ $lab->id }}">{{ $lab->nombre }}</option>
-                                @endforeach
-                            </select>
-                            @error('ubicacionId') <span class="text-[11px] text-red-600 font-semibold">{{ $message }}</span> @enderror
+                            <label class="block text-xs font-semibold text-gray-700 mb-1.5">
+                                Sala / Laboratorio de Destino <span class="text-amber-600">*</span>
+                            </label>
+                            <div class="grid grid-cols-2 gap-2">
+                                <button
+                                    type="button"
+                                    wire:click="seleccionarTipoDestino('sala')"
+                                    class="py-2 px-3 text-xs font-semibold rounded-lg border text-center transition {{ $tipo_destino === 'sala' ? 'bg-amber-600 text-white border-amber-600 shadow-xs hover:bg-amber-700' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100' }}"
+                                >
+                                    SALA
+                                </button>
+                                <button
+                                    type="button"
+                                    wire:click="seleccionarTipoDestino('laboratorio')"
+                                    class="py-2 px-3 text-xs font-semibold rounded-lg border text-center transition {{ $tipo_destino === 'laboratorio' ? 'bg-amber-600 text-white border-amber-600 shadow-xs hover:bg-amber-700' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100' }}"
+                                >
+                                    LABORATORIO
+                                </button>
+                            </div>
+                            @error('tipo_destino')
+                                <p class="text-[11px] text-red-600 mt-1 font-semibold">{{ $message }}</p>
+                            @enderror
                         </div>
 
-                        <!-- Severidad -->
-                        <div>
-                            <label class="block font-semibold text-slate-700 mb-1">Nivel de Severidad</label>
-                            <select wire:model="severidad" class="w-full text-xs sm:text-sm rounded-lg border-slate-300 focus:border-amber-500 focus:ring-amber-500">
-                                <option value="baja">Baja (Anomalía estética o menor)</option>
-                                <option value="media">Media (Falla parcial / funcional)</option>
-                                <option value="alta">Alta (Equipo inoperativo / riesgo eléctrico)</option>
-                            </select>
-                        </div>
+                        @if($tipo_destino === 'sala')
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-gray-200/70">
+                                <div>
+                                    <label class="block text-[11px] font-semibold text-gray-600 mb-1">
+                                        Edificio <span class="text-amber-600">*</span>
+                                    </label>
+                                    <select
+                                        wire:model.live="edificio_destino"
+                                        class="w-full text-xs border-gray-300 rounded-lg focus:ring-amber-500 focus:border-amber-500"
+                                    >
+                                        <option value="Edificio A">Edificio A</option>
+                                        <option value="Edificio C">Edificio C</option>
+                                    </select>
+                                    @error('edificio_destino')
+                                        <p class="text-[11px] text-red-600 mt-1 font-semibold">{{ $message }}</p>
+                                    @enderror
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-semibold text-gray-600 mb-1">
+                                        Sala ({{ $edificio_destino }}) <span class="text-amber-600">*</span>
+                                    </label>
+                                    <select
+                                        wire:model="sala_destino"
+                                        class="w-full text-xs border-gray-300 rounded-lg focus:ring-amber-500 focus:border-amber-500"
+                                    >
+                                        @if($edificio_destino === 'Edificio A')
+                                            @foreach($salasEdificioA as $sala)
+                                                <option value="{{ $sala }}">{{ $sala }}</option>
+                                            @endforeach
+                                        @else
+                                            @foreach($salasEdificioC as $sala)
+                                                <option value="{{ $sala }}">{{ $sala }}</option>
+                                            @endforeach
+                                        @endif
+                                    </select>
+                                    @error('sala_destino')
+                                        <p class="text-[11px] text-red-600 mt-1 font-semibold">{{ $message }}</p>
+                                    @enderror
+                                </div>
+                            </div>
+                        @else
+                            <div class="pt-1 border-t border-gray-200/70">
+                                <div class="flex items-center justify-between mb-1">
+                                    <label class="text-[11px] font-semibold text-gray-600">
+                                        Laboratorio / Taller <span class="text-amber-600">*</span>
+                                    </label>
+                                    <span class="text-[10px] text-gray-500 italic">(Sede INACAP Temuco)</span>
+                                </div>
+                                <select
+                                    wire:model="ubicacionId"
+                                    class="w-full text-xs border-gray-300 rounded-lg focus:ring-amber-500 focus:border-amber-500"
+                                >
+                                    @foreach($this->laboratoriosDisponibles() as $lab)
+                                        <option value="{{ $lab->id }}">{{ $lab->nombre }}</option>
+                                    @endforeach
+                                </select>
+                                @error('ubicacionId')
+                                    <p class="text-[11px] text-red-600 mt-1 font-semibold">{{ $message }}</p>
+                                @enderror
+                            </div>
+                        @endif
+                    </div>
+
+                    <!-- Severidad -->
+                    <div>
+                        <label class="block font-semibold text-slate-700 mb-1">Nivel de Severidad *</label>
+                        <select wire:model="severidad" class="w-full text-xs sm:text-sm rounded-lg border-slate-300 focus:border-amber-500 focus:ring-amber-500">
+                            <option value="baja">Baja (Anomalía estética o menor)</option>
+                            <option value="media">Media (Falla parcial / funcional)</option>
+                            <option value="alta">Alta (Equipo inoperativo / riesgo eléctrico)</option>
+                        </select>
                     </div>
 
                     <!-- Descripción del desperfecto -->

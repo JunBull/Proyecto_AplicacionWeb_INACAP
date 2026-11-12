@@ -27,6 +27,16 @@ new #[Layout('layouts.app')] class extends Component
         Gate::authorize('viewAny', Proveedor::class);
     }
 
+    public function updatedRut(string $val): void
+    {
+        $this->rut = \App\Services\FormatoHelper::formatearRut($val) ?? $val;
+    }
+
+    public function updatedTelefono(string $val): void
+    {
+        $this->telefono = \App\Services\FormatoHelper::formatearTelefono($val) ?? $val;
+    }
+
     public function proveedores(ProveedorService $service)
     {
         $query = Proveedor::query();
@@ -222,12 +232,32 @@ new #[Layout('layouts.app')] class extends Component
                         <div class="grid grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-xs font-semibold text-gray-700 uppercase">RUT *</label>
-                                <input type="text" wire:model="rut" class="w-full border-gray-300 rounded-md shadow-sm text-sm" placeholder="Ej. 76.123.456-7" />
+                                <input
+                                    type="text"
+                                    wire:model.live.blur="rut"
+                                    maxlength="12"
+                                    oninput="let v = this.value.replace(/[^0-9kK]/g, ''); if(v.length > 9) v = v.slice(0, 9); if(v.length >= 2) { let c = v.slice(0, -1).replace(/\D/g, ''); let dv = v.slice(-1).toUpperCase(); this.value = (c ? new Intl.NumberFormat('es-CL').format(c) : '') + '-' + dv; } else { this.value = v.toUpperCase(); }"
+                                    class="w-full border-gray-300 rounded-md shadow-sm text-sm font-mono"
+                                    placeholder="Ej. 76.123.456-7"
+                                />
                                 @error('rut') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
                             </div>
                             <div>
-                                <label class="block text-xs font-semibold text-gray-700 uppercase">Teléfono</label>
-                                <input type="text" wire:model="telefono" class="w-full border-gray-300 rounded-md shadow-sm text-sm" placeholder="+56 9 8765 4321" />
+                                <label class="block text-xs font-semibold text-gray-700 uppercase">Teléfono (+56 y 9 números)</label>
+                                <div class="flex rounded-md shadow-sm">
+                                    <span class="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-600 text-xs font-bold select-none">
+                                        +56
+                                    </span>
+                                    <input
+                                        type="tel"
+                                        wire:model="telefono"
+                                        maxlength="15"
+                                        oninput="let v = this.value.replace(/[^0-9]/g, ''); if(v.startsWith('56')) v = v.slice(2); if(v.length > 9) v = v.slice(0, 9); if(v.length === 9) { this.value = '+56 ' + v.slice(0,1) + ' ' + v.slice(1,5) + ' ' + v.slice(5,9); } else { this.value = v ? '+56 ' + v : ''; }"
+                                        class="w-full border-gray-300 rounded-none rounded-r-md shadow-sm text-sm"
+                                        placeholder="9 8765 4321"
+                                    />
+                                </div>
+                                @error('telefono') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
                             </div>
                         </div>
 

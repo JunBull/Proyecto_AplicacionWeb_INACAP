@@ -17,7 +17,8 @@ class PdfService
         $fechaHora = $falla->fecha_reporte ? $falla->fecha_reporte->format('d/m/Y H:i:s') : now()->format('d/m/Y H:i:s');
         $docenteNombre = $falla->reportador ? $falla->reportador->name : 'No especificado';
         $docenteEmail = $falla->reportador ? $falla->reportador->email : '';
-        $ubicacionNombre = $falla->ubicacion ? $falla->ubicacion->nombre : 'Ubicación no especificada';
+        $ubicacionNombre = $falla->espacio_destino
+            ?: ($falla->ubicacion ? $falla->ubicacion->nombre : 'Ubicación no especificada');
 
         $tipoItem = $falla->equipo_id ? 'EQUIPO' : 'INSUMO / MATERIAL';
         $itemNombre = $falla->equipo_id

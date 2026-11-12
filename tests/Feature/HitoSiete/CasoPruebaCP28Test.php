@@ -171,6 +171,45 @@ class CasoPruebaCP28Test extends TestCase
         ]);
     }
 
+    public function test_interfaz_docente_reporta_incidencia_en_sala_satisfactoriamente(): void
+    {
+        Queue::fake();
+
+        $this->actingAs($this->docente);
+
+        $equipo = Equipo::create([
+            'codigo_barras' => 'EQ-ELC-INC-009',
+            'nombre' => 'Multímetro Fluke 87V',
+            'marca' => 'Fluke',
+            'modelo' => '87V',
+            'numero_serie' => 'SN-FLUKE-009',
+            'estado' => 'disponible',
+            'ubicacion_id' => $this->laboratorio->id,
+        ]);
+
+        Volt::test('pages.solicitudes.index')
+            ->call('abrirModalIncidencia')
+            ->set('tipoIncidencia', 'equipo')
+            ->set('incidenciaEquipoId', $equipo->id)
+            ->call('seleccionarTipoDestinoIncidencia', 'sala')
+            ->set('incidenciaEdificioDestino', 'Edificio C')
+            ->set('incidenciaSalaDestino', 'C201')
+            ->set('incidenciaDescripcion', 'Fusible interno quemado durante medición en sala de clases.')
+            ->set('incidenciaSeveridad', 'media')
+            ->call('registrarIncidencia')
+            ->assertHasNoErrors()
+            ->assertSee('¡Incidencia');
+
+        $this->assertDatabaseHas('fallas', [
+            'equipo_id' => $equipo->id,
+            'reportada_por' => $this->docente->id,
+            'tipo_destino' => 'sala',
+            'edificio_destino' => 'Edificio C',
+            'espacio_destino' => 'Edificio C - C201',
+            'descripcion' => 'Fusible interno quemado durante medición en sala de clases.',
+        ]);
+    }
+
     /**
      * CP-28: Ejecución del Job EnviarReporteIncidenciaJob envía el correo con PDF a Pañolero y Administrador.
      */

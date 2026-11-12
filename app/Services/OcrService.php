@@ -196,7 +196,7 @@ class OcrService
                     $items[] = [
                         'descripcion' => $desc,
                         'cantidad' => $cant,
-                        'costo_unitario' => $precio,
+                        'costo_unitario' => (float) round($precio),
                         'impuesto' => 0.0,
                     ];
                 }

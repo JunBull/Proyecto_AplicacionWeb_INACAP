@@ -25,6 +25,7 @@ new #[Layout('layouts.app')] class extends Component
     public ?int $carreraPresupuestoId = null;
     public string $carreraPresupuestoNombre = '';
     public float $montoPresupuesto = 0;
+    public float $saldoPresupuesto = 0;
 
     // Modal / Panel Asignaturas
     public bool $mostrarModalAsignaturas = false;
@@ -117,6 +118,7 @@ new #[Layout('layouts.app')] class extends Component
             ->first();
 
         $this->montoPresupuesto = $presupuesto ? (float) $presupuesto->monto_asignado : 0;
+        $this->saldoPresupuesto = $presupuesto ? (float) $presupuesto->saldo_actual : 0;
         $this->mostrarModalPresupuesto = true;
     }
 
@@ -129,15 +131,24 @@ new #[Layout('layouts.app')] class extends Component
             'montoPresupuesto.min' => 'El presupuesto no puede ser negativo.',
         ]);
 
-        Presupuesto::updateOrCreate(
-            [
+        $presupuesto = Presupuesto::where('carrera_id', $this->carreraPresupuestoId)
+            ->where('anio', $this->anioPresupuesto)
+            ->first();
+
+        if ($presupuesto) {
+            $gastado = max(0, (float) $presupuesto->monto_asignado - (float) $presupuesto->saldo_actual);
+            $presupuesto->update([
+                'monto_asignado' => $this->montoPresupuesto,
+                'saldo_actual' => max(0, $this->montoPresupuesto - $gastado),
+            ]);
+        } else {
+            Presupuesto::create([
                 'carrera_id' => $this->carreraPresupuestoId,
                 'anio' => $this->anioPresupuesto,
-            ],
-            [
                 'monto_asignado' => $this->montoPresupuesto,
-            ]
-        );
+                'saldo_actual' => $this->montoPresupuesto,
+            ]);
+        }
 
         $this->mostrarModalPresupuesto = false;
         session()->flash('mensaje', "Presupuesto {$this->anioPresupuesto} asignado a {$this->carreraPresupuestoNombre}.");
@@ -238,7 +249,10 @@ new #[Layout('layouts.app')] class extends Component
         @forelse($this->carreras() as $carrera)
             @php
                 $presupuestoActual = $carrera->presupuestos->first();
-                $monto = $presupuestoActual ? (float) $presupuestoActual->monto_asignado : 0;
+                $asignado = $presupuestoActual ? (float) $presupuestoActual->monto_asignado : 0;
+                $saldo = $presupuestoActual ? (float) $presupuestoActual->saldo_actual : 0;
+                $gastado = max(0, $asignado - $saldo);
+                $pctGastado = $asignado > 0 ? min(100, round(($gastado / $asignado) * 100)) : 0;
             @endphp
             <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col justify-between hover:shadow-md transition">
                 <div class="space-y-3">
@@ -255,17 +269,36 @@ new #[Layout('layouts.app')] class extends Component
                     </div>
 
                     <!-- Métricas de Presupuesto y Talleres -->
-                    <div class="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-xs">
-                        <div class="p-2.5 bg-slate-50 rounded-lg">
-                            <div class="text-[10px] font-bold text-slate-400 uppercase">Presupuesto {{ $anioPresupuesto }}</div>
-                            <div class="text-sm font-extrabold text-slate-900 mt-0.5">
-                                ${{ number_format($monto, 0, ',', '.') }}
+                    <div class="space-y-2 pt-2 border-t border-slate-100 text-xs">
+                        <div class="grid grid-cols-2 gap-2">
+                            <div class="p-2.5 bg-emerald-50/70 border border-emerald-100 rounded-lg">
+                                <div class="text-[10px] font-bold text-emerald-800 uppercase flex items-center justify-between">
+                                    <span>Saldo Disponible</span>
+                                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                </div>
+                                <div class="text-sm font-extrabold text-emerald-700 mt-0.5">
+                                    ${{ number_format($saldo, 0, ',', '.') }}
+                                </div>
+                            </div>
+                            <div class="p-2.5 bg-slate-50 border border-slate-100 rounded-lg">
+                                <div class="text-[10px] font-bold text-slate-400 uppercase">Asignado {{ $anioPresupuesto }}</div>
+                                <div class="text-sm font-extrabold text-slate-900 mt-0.5">
+                                    ${{ number_format($asignado, 0, ',', '.') }}
+                                </div>
                             </div>
                         </div>
-                        <div class="p-2.5 bg-slate-50 rounded-lg">
-                            <div class="text-[10px] font-bold text-slate-400 uppercase">Talleres / Materias</div>
-                            <div class="text-sm font-extrabold text-slate-900 mt-0.5">
-                                {{ $carrera->asignaturas->count() }} asignaturas
+
+                        <!-- Barra de Ejecución y Consumo -->
+                        <div class="p-2.5 bg-slate-50 rounded-lg space-y-1.5 border border-slate-100">
+                            <div class="flex items-center justify-between text-[11px]">
+                                <span class="text-slate-500 font-medium">Ejecutado (Compras/Facturas): <strong class="text-slate-800">${{ number_format($gastado, 0, ',', '.') }}</strong></span>
+                                <span class="font-bold {{ $pctGastado > 85 ? 'text-red-600' : 'text-slate-700' }}">{{ $pctGastado }}%</span>
+                            </div>
+                            <div class="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                                <div class="bg-red-600 h-1.5 rounded-full transition-all" style="width: {{ $pctGastado }}%"></div>
+                            </div>
+                            <div class="flex items-center justify-between text-[10px] text-slate-400 pt-0.5">
+                                <span>Talleres / Asignaturas: <strong class="text-slate-700">{{ $carrera->asignaturas->count() }}</strong></span>
                             </div>
                         </div>
                     </div>
@@ -300,9 +333,30 @@ new #[Layout('layouts.app')] class extends Component
                     <button wire:click="$set('mostrarModalPresupuesto', false)" class="text-slate-400 hover:text-slate-600 text-xl font-bold">&times;</button>
                 </div>
 
+                @if($carreraPresupuestoId)
+                    @php
+                        $presupuestoModal = \App\Models\Presupuesto::where('carrera_id', $carreraPresupuestoId)->where('anio', $anioPresupuesto)->first();
+                        $saldoModal = $presupuestoModal ? (float) $presupuestoModal->saldo_actual : 0;
+                        $asignadoModal = $presupuestoModal ? (float) $presupuestoModal->monto_asignado : 0;
+                        $gastadoModal = max(0, $asignadoModal - $saldoModal);
+                    @endphp
+                    @if($presupuestoModal)
+                        <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5 text-xs">
+                            <div class="flex justify-between items-center">
+                                <span class="text-slate-500 font-medium">Saldo vigente disponible:</span>
+                                <strong class="text-sm font-bold text-emerald-700">${{ number_format($saldoModal, 0, ',', '.') }}</strong>
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="text-slate-500 font-medium">Gasto ejecutado (Facturas/Compras):</span>
+                                <strong class="text-slate-800">${{ number_format($gastadoModal, 0, ',', '.') }}</strong>
+                            </div>
+                        </div>
+                    @endif
+                @endif
+
                 <div>
-                    <label class="block font-semibold text-slate-700 text-xs sm:text-sm mb-1">Monto Asignado ($ CLP) *</label>
-                    <input wire:model="montoPresupuesto" type="number" min="0" step="1000" class="w-full text-sm rounded-lg border-slate-300 focus:border-red-600 focus:ring-red-600">
+                    <label class="block font-semibold text-slate-700 text-xs sm:text-sm mb-1">Monto Asignado ($ CLP sin decimales) *</label>
+                    <input wire:model="montoPresupuesto" type="number" min="0" step="1" onkeydown="if(event.key === '.' || event.key === ',' || event.key === 'e' || event.key === 'E' || event.key === '-') event.preventDefault();" oninput="this.value = this.value.replace(/[^0-9]/g, '')" class="w-full text-sm rounded-lg border-slate-300 focus:border-red-600 focus:ring-red-600">
                     @error('montoPresupuesto') <span class="text-[11px] text-red-600 font-semibold">{{ $message }}</span> @enderror
                     <p class="text-[11px] text-slate-400 mt-1">Este monto rige las compras y cotizaciones aprobadas para esta carrera durante el año {{ $anioPresupuesto }}.</p>
                 </div>

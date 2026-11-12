@@ -276,6 +276,9 @@ class PrestamoService
                 ]);
             }
 
+            // Normalización de formato RUT institucional
+            $receptorCredencialRut = FormatoHelper::formatearRut($rutLimpio) ?? $rutLimpio;
+
             if (! $credencialVerificada) {
                 throw ValidationException::withMessages([
                     'credencial_verificada' => 'Debe validar y verificar físicamente la credencial del estudiante.',
@@ -500,6 +503,9 @@ class PrestamoService
             ]);
         }
 
+        // Normalización de formato RUT institucional (00.000.000-0)
+        $rut = FormatoHelper::formatearRut($rut) ?? $rut;
+
         $credencialVerificada = (bool) ($datosEstudiante['credencial_verificada'] ?? false);
         if (! $credencialVerificada) {
             throw ValidationException::withMessages([
@@ -521,10 +527,15 @@ class PrestamoService
         }
 
         return DB::transaction(function () use ($panolero, $datosEstudiante, $items, $nombre, $rut, $horaDevolucionAcordada) {
+            $tipoDestino = ! empty($datosEstudiante['tipo_destino']) ? (string) $datosEstudiante['tipo_destino'] : 'laboratorio';
+
             $ubicacion = ! empty($datosEstudiante['ubicacion_destino_id'])
                 ? Ubicacion::find($datosEstudiante['ubicacion_destino_id'])
-                : (Ubicacion::where('tipo', 'laboratorio')->first() ?? Ubicacion::first());
+                : ($tipoDestino === 'laboratorio' ? (Ubicacion::where('tipo', 'laboratorio')->first() ?? Ubicacion::first()) : null);
             $ubicacionDestinoId = $ubicacion?->id;
+
+            $edificioDestino = ! empty($datosEstudiante['edificio_destino']) ? (string) $datosEstudiante['edificio_destino'] : ($tipoDestino === 'sala' ? 'Edificio A' : null);
+            $espacioDestino = ! empty($datosEstudiante['espacio_destino']) ? (string) $datosEstudiante['espacio_destino'] : ($ubicacion ? $ubicacion->nombre : null);
 
             $horaEntrega = ! empty($datosEstudiante['hora_entrega'])
                 ? trim($datosEstudiante['hora_entrega'])
@@ -542,6 +553,9 @@ class PrestamoService
                 'fecha_requerida' => now()->toDateString(),
                 'hora_requerida' => $horaEntrega,
                 'ubicacion_destino_id' => $ubicacionDestinoId,
+                'tipo_destino' => $tipoDestino,
+                'edificio_destino' => $edificioDestino,
+                'espacio_destino' => $espacioDestino,
                 'asignatura_id' => ! empty($datosEstudiante['asignatura_id']) ? (int) $datosEstudiante['asignatura_id'] : null,
                 'revisada_por' => $panolero->id,
                 'observaciones' => $observaciones,
