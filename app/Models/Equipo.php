@@ -22,6 +22,7 @@ class Equipo extends Model
         'numero_serie',
         'estado',
         'criticidad',
+        'requiere_calibracion',
         'reservado_clases',
         'ubicacion_id',
         'compra_id',
@@ -34,6 +35,7 @@ class Equipo extends Model
         return [
             'fecha_adquisicion' => 'date',
             'reservado_clases' => 'boolean',
+            'requiere_calibracion' => 'boolean',
         ];
     }
 

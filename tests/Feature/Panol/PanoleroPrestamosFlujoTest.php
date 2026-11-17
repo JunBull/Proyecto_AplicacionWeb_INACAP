@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Panol;
 
+use App\Mail\AlertaRetrasoEstudianteMail;
 use App\Models\Carrera;
 use App\Models\DetalleSolicitud;
 use App\Models\Entrega;
@@ -10,6 +11,7 @@ use App\Models\SolicitudMaterial;
 use App\Models\Ubicacion;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 use Livewire\Volt\Volt;
 use Tests\TestCase;
 
@@ -266,5 +268,108 @@ class PanoleroPrestamosFlujoTest extends TestCase
 
         $this->assertEquals('disponible', $this->equipo->fresh()->estado);
         $this->assertEquals('cerrada', $solicitud->fresh()->estado);
+    }
+
+    public function test_prestamo_estudiante_vencido_muestra_boton_reportar_y_envia_correo_a_administradores(): void
+    {
+        $this->actingAs($this->panolero);
+
+        $admin = User::factory()->create([
+            'rol' => 'administrador',
+            'email' => 'director.ti@inacap.cl',
+            'activo' => true,
+        ]);
+
+        // 1. Solicitud y Entrega a Estudiante VENCIDA (debe mostrar botón REPORTAR)
+        $solicitudEstudiante = SolicitudMaterial::create([
+            'solicitante_id' => $this->panolero->id,
+            'fecha_solicitud' => now()->subHours(4),
+            'fecha_requerida' => now()->toDateString(),
+            'ubicacion_destino_id' => $this->laboratorio->id,
+            'estado' => 'entregada_abierta',
+        ]);
+
+        DetalleSolicitud::create([
+            'solicitud_id' => $solicitudEstudiante->id,
+            'equipo_id' => $this->equipo->id,
+            'cantidad_solicitada' => 1.0,
+            'cantidad_entregada' => 1.0,
+            'cantidad_devuelta' => 0.0,
+            'estado_devolucion' => 'pendiente',
+        ]);
+
+        $entregaEstudianteVencida = Entrega::create([
+            'solicitud_id' => $solicitudEstudiante->id,
+            'entregado_por' => $this->panolero->id,
+            'receptor_nombre' => 'Matías Alarcón',
+            'receptor_tipo' => 'estudiante',
+            'receptor_credencial_rut' => '20.123.456-8',
+            'credencial_verificada' => true,
+            'hora_entrega' => now()->subHours(4)->format('H:i:s'),
+            'hora_devolucion_acordada' => now()->subHours(2)->format('H:i:s'),
+            'fecha_entrega' => now()->subHours(4),
+        ]);
+
+        // 2. Solicitud y Entrega a Docente vencida (NO debe mostrar botón REPORTAR porque es docente)
+        $solicitudDocente = SolicitudMaterial::create([
+            'solicitante_id' => $this->docente->id,
+            'fecha_solicitud' => now()->subHours(4),
+            'fecha_requerida' => now()->toDateString(),
+            'ubicacion_destino_id' => $this->laboratorio->id,
+            'estado' => 'entregada_abierta',
+        ]);
+
+        $equipoDocente = Equipo::create([
+            'ubicacion_id' => $this->laboratorio->id,
+            'codigo_barras' => 'EQ-DOC-99',
+            'nombre' => 'Proyector Epson',
+            'marca' => 'Epson',
+            'modelo' => 'PowerLite X39',
+            'numero_serie' => 'SN-EPS-99',
+            'estado' => 'prestado',
+            'criticidad' => 'media',
+        ]);
+
+        DetalleSolicitud::create([
+            'solicitud_id' => $solicitudDocente->id,
+            'equipo_id' => $equipoDocente->id,
+            'cantidad_solicitada' => 1.0,
+            'cantidad_entregada' => 1.0,
+            'cantidad_devuelta' => 0.0,
+            'estado_devolucion' => 'pendiente',
+        ]);
+
+        $entregaDocente = Entrega::create([
+            'solicitud_id' => $solicitudDocente->id,
+            'entregado_por' => $this->panolero->id,
+            'receptor_nombre' => 'Profesor Carlos Valdés',
+            'receptor_tipo' => 'docente',
+            'hora_entrega' => now()->subHours(4)->format('H:i:s'),
+            'hora_devolucion_acordada' => now()->subHours(2)->format('H:i:s'),
+            'fecha_entrega' => now()->subHours(4),
+        ]);
+
+        Mail::fake();
+
+        $test = Volt::test('pages.devoluciones.index')
+            ->assertSee('Matías Alarcón')
+            ->assertSee('Profesor Carlos Valdés')
+            ->assertSee('REPORTAR');
+
+        // Ejecutar reporte de retraso a estudiante
+        $test->call('reportarRetraso', $entregaEstudianteVencida->id)
+            ->assertHasNoErrors()
+            ->assertSee('Se ha enviado la alerta de retraso por correo a los administradores')
+            ->assertSee('Reportado');
+
+        // Verificar que el correo fue enviado a los administradores con la clase Mailable
+        Mail::assertSent(AlertaRetrasoEstudianteMail::class, function (AlertaRetrasoEstudianteMail $mail) use ($admin, $entregaEstudianteVencida) {
+            return $mail->hasTo($admin->email)
+                && $mail->entrega->id === $entregaEstudianteVencida->id
+                && str_contains($mail->envelope()->subject, 'Matías Alarcón');
+        });
+
+        // Verificar que la entrega fue marcada como reportada
+        $this->assertNotNull($entregaEstudianteVencida->fresh()->reportado_en);
     }
 }

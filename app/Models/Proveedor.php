@@ -47,4 +47,14 @@ class Proveedor extends Model
     {
         return $this->hasMany(Mantenimiento::class, 'proveedor_id');
     }
+
+    public function scopeParaMantenimiento($query)
+    {
+        return $query->where('activo', true)->whereIn('tipo', ['mantenimiento', 'ambos']);
+    }
+
+    public function scopeParaInsumos($query)
+    {
+        return $query->where('activo', true)->whereIn('tipo', ['insumos', 'ambos']);
+    }
 }

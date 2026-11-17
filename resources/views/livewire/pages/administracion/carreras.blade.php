@@ -69,6 +69,17 @@ new #[Layout('layouts.app')] class extends Component
         $this->mostrarModalCarrera = true;
     }
 
+    public function editarCarrera(int $carreraId): void
+    {
+        $this->resetValidation();
+        $carrera = Carrera::findOrFail($carreraId);
+        $this->carreraId = $carrera->id;
+        $this->codigoCarrera = $carrera->codigo;
+        $this->nombreCarrera = $carrera->nombre;
+        $this->activaCarrera = (bool) $carrera->activa;
+        $this->mostrarModalCarrera = true;
+    }
+
     public function guardarCarrera(): void
     {
         $rules = [
@@ -263,9 +274,14 @@ new #[Layout('layouts.app')] class extends Component
                             </span>
                             <h3 class="text-base font-bold text-slate-900 mt-1 leading-snug">{{ $carrera->nombre }}</h3>
                         </div>
-                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase {{ $carrera->activa ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600' }}">
-                            {{ $carrera->activa ? 'Activa' : 'Inactiva' }}
-                        </span>
+                        <div class="flex items-center gap-1.5">
+                            <button wire:click="editarCarrera({{ $carrera->id }})" class="p-1 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100 transition" title="Editar Carrera">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+                            </button>
+                            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase {{ $carrera->activa ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600' }}">
+                                {{ $carrera->activa ? 'Activa' : 'Inactiva' }}
+                            </span>
+                        </div>
                     </div>
 
                     <!-- Métricas de Presupuesto y Talleres -->
@@ -320,6 +336,53 @@ new #[Layout('layouts.app')] class extends Component
             </div>
         @endforelse
     </div>
+
+    <!-- Modal Carrera (Crear / Editar) -->
+    @if($mostrarModalCarrera)
+        <div class="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 border border-slate-200">
+                <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <h2 class="text-base font-bold text-slate-900">
+                        {{ $carreraId ? 'Editar Carrera Académica' : 'Nueva Carrera Académica' }}
+                    </h2>
+                    <button wire:click="$set('mostrarModalCarrera', false)" class="text-slate-400 hover:text-slate-600 text-xl font-bold">&times;</button>
+                </div>
+
+                <div class="space-y-3">
+                    <div>
+                        <label class="block font-semibold text-slate-700 text-xs sm:text-sm mb-1">Código de Carrera *</label>
+                        <input wire:model="codigoCarrera" type="text" placeholder="Ej. INF-ING" class="w-full text-sm rounded-lg border-slate-300 focus:border-red-600 focus:ring-red-600 uppercase">
+                        @error('codigoCarrera') <span class="text-[11px] text-red-600 font-semibold">{{ $message }}</span> @enderror
+                    </div>
+
+                    <div>
+                        <label class="block font-semibold text-slate-700 text-xs sm:text-sm mb-1">Nombre de la Carrera *</label>
+                        <input wire:model="nombreCarrera" type="text" placeholder="Ej. Ingeniería en Informática" class="w-full text-sm rounded-lg border-slate-300 focus:border-red-600 focus:ring-red-600">
+                        @error('nombreCarrera') <span class="text-[11px] text-red-600 font-semibold">{{ $message }}</span> @enderror
+                    </div>
+
+                    <div class="flex items-center gap-3 pt-1">
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input wire:model="activaCarrera" type="checkbox" class="sr-only peer">
+                            <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                        </label>
+                        <span class="text-xs font-semibold text-slate-700">
+                            {{ $activaCarrera ? 'Carrera Activa (Disponible para asignaturas y alumnos)' : 'Carrera Inactiva' }}
+                        </span>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-end gap-3 border-t border-slate-100 pt-3">
+                    <button wire:click="$set('mostrarModalCarrera', false)" type="button" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">
+                        Cancelar
+                    </button>
+                    <button wire:click="guardarCarrera" type="button" class="px-5 py-2 text-xs font-semibold text-white bg-red-700 hover:bg-red-800 rounded-lg shadow-sm">
+                        {{ $carreraId ? 'Actualizar Carrera' : 'Crear Carrera' }}
+                    </button>
+                </div>
+            </div>
+        </div>
+    @endif
 
     <!-- Modal Presupuesto Anual -->
     @if($mostrarModalPresupuesto)

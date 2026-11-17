@@ -11,6 +11,7 @@ use App\Services\OcrService;
 use App\Services\PresupuestoService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
@@ -26,6 +27,10 @@ new #[Layout('layouts.app')] class extends Component
     // Estado del asistente de Recepción e Ingreso Documental (Proceso 2)
     public bool $mostrarModalIngreso = false;
     public int $pasoActual = 1; // 1: Carga y OCR, 2: Revisión Humana y Asociación, 3: Confirmación
+
+    // Modal Ver Detalle de Factura / Compra e Ítems Ingresados
+    public bool $mostrarModalDetalle = false;
+    public ?int $compraDetalleId = null;
 
     // Archivo y Extracción
     public $archivoDocumento = null;
@@ -56,6 +61,21 @@ new #[Layout('layouts.app')] class extends Component
     public function compras(CompraService $service)
     {
         return $service->listarCompras($this->filtroCarreraId);
+    }
+
+    public function verDetalle(int $compraId): void
+    {
+        $compra = Compra::findOrFail($compraId);
+        Gate::authorize('view', $compra);
+
+        $this->compraDetalleId = $compraId;
+        $this->mostrarModalDetalle = true;
+    }
+
+    public function cerrarModalDetalle(): void
+    {
+        $this->mostrarModalDetalle = false;
+        $this->compraDetalleId = null;
     }
 
     public function abrirModalIngreso(): void
@@ -270,20 +290,35 @@ new #[Layout('layouts.app')] class extends Component
                             <th class="px-4 py-3 text-right">Monto Total</th>
                             <th class="px-4 py-3 text-center">Ítems Ingresados</th>
                             <th class="px-4 py-3 text-center">Respaldo Digital</th>
+                            <th class="px-4 py-3 text-center">Acciones</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-200 bg-white">
                         @forelse($this->compras(app(\App\Services\CompraService::class)) as $c)
-                            <tr class="hover:bg-gray-50">
+                            <tr class="hover:bg-gray-50 transition">
                                 <td class="px-4 py-3 font-bold text-gray-900">{{ $c->numero_documento }}</td>
                                 <td class="px-4 py-3 text-gray-700">{{ $c->proveedor->razon_social ?? 'Proveedor' }}</td>
                                 <td class="px-4 py-3 text-gray-700">{{ $c->carrera->nombre ?? 'Carrera' }}</td>
                                 <td class="px-4 py-3 text-gray-600">{{ $c->fecha->format('d/m/Y') }}</td>
                                 <td class="px-4 py-3 text-right font-bold text-gray-900">${{ number_format($c->monto_total, 0, ',', '.') }}</td>
                                 <td class="px-4 py-3 text-center">
-                                    <span class="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-xs font-semibold">
-                                        {{ $c->detalles->count() }} ítem(s)
-                                    </span>
+                                    <button
+                                        type="button"
+                                        wire:click="verDetalle({{ $c->id }})"
+                                        class="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-md text-xs font-semibold border border-blue-200 transition cursor-pointer shadow-xs hover:shadow"
+                                        title="Ver ítems ingresados de esta factura"
+                                    >
+                                        <svg class="w-3.5 h-3.5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                        </svg>
+                                        <span>{{ $c->detalles->count() }} ítem(s)</span>
+                                    </button>
+                                    @if($c->detalles->isNotEmpty())
+                                        <div class="text-[11px] text-gray-500 max-w-[200px] mx-auto truncate mt-1" title="{{ $c->detalles->pluck('descripcion')->join(', ') }}">
+                                            {{ $c->detalles->pluck('descripcion')->join(', ') }}
+                                        </div>
+                                    @endif
                                 </td>
                                 <td class="px-4 py-3 text-center">
                                     @if($c->documentos->isNotEmpty())
@@ -294,10 +329,24 @@ new #[Layout('layouts.app')] class extends Component
                                         <span class="text-xs text-gray-400">Sin archivo</span>
                                     @endif
                                 </td>
+                                <td class="px-4 py-3 text-center whitespace-nowrap">
+                                    <button
+                                        type="button"
+                                        wire:click="verDetalle({{ $c->id }})"
+                                        class="px-2.5 py-1 text-xs font-semibold text-red-700 hover:text-red-900 hover:bg-red-50 rounded border border-red-200 transition inline-flex items-center gap-1 cursor-pointer"
+                                        title="Ver detalle completo e ítems"
+                                    >
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                        </svg>
+                                        Ver ítems
+                                    </button>
+                                </td>
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="7" class="px-4 py-8 text-center text-gray-400">No hay compras ingresadas en el inventario.</td>
+                                <td colspan="8" class="px-4 py-8 text-center text-gray-400">No hay compras ingresadas en el inventario.</td>
                             </tr>
                         @endforelse
                     </tbody>
@@ -435,6 +484,13 @@ new #[Layout('layouts.app')] class extends Component
                                     <span>Líneas de Compra / Insumos a Ingresar</span>
                                     <button type="button" wire:click="agregarLinea" class="text-red-700 hover:text-red-900 font-semibold text-xs">+ Agregar Ítem</button>
                                 </div>
+                                <div class="hidden sm:grid grid-cols-12 gap-2 px-3 py-1 bg-gray-50 text-[10px] font-bold text-gray-500 uppercase border-b">
+                                    <div class="col-span-4">Descripción en Factura *</div>
+                                    <div class="col-span-3">Insumo Inventario</div>
+                                    <div class="col-span-2">Cantidad *</div>
+                                    <div class="col-span-2">Costo Unit. (CLP) *</div>
+                                    <div class="col-span-1 text-center">Quitar</div>
+                                </div>
                                 <div class="max-h-60 overflow-y-auto p-2 space-y-2">
                                     @foreach($items as $i => $item)
                                         <div class="space-y-1">
@@ -487,6 +543,167 @@ new #[Layout('layouts.app')] class extends Component
                     @endif
                 </div>
             </div>
+        @endif
+
+        <!-- Modal Ver Detalle de Factura / Compra e Ítems Ingresados -->
+        @if($mostrarModalDetalle && $compraDetalleId)
+            @php
+                $compraModal = \App\Models\Compra::with(['proveedor', 'carrera', 'detalles.insumo', 'documentos'])->find($compraDetalleId);
+            @endphp
+            @if($compraModal)
+                <div class="fixed inset-0 z-50 overflow-y-auto bg-gray-900 bg-opacity-50 flex items-center justify-center p-4">
+                    <div class="bg-white rounded-xl shadow-2xl max-w-4xl w-full overflow-hidden border border-gray-100">
+                        <!-- Header -->
+                        <div class="bg-gradient-to-r from-gray-800 to-gray-900 px-6 py-4 flex justify-between items-center text-white">
+                            <div>
+                                <div class="flex items-center gap-3">
+                                    <h3 class="text-lg font-bold">Detalle de Factura / Compra</h3>
+                                    <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-600 text-white">
+                                        N° {{ $compraModal->numero_documento }}
+                                    </span>
+                                </div>
+                                <p class="text-xs text-gray-300 mt-0.5">
+                                    Registrada el {{ $compraModal->fecha ? $compraModal->fecha->format('d/m/Y') : '-' }} para {{ $compraModal->carrera->nombre ?? 'Carrera' }}
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                wire:click="cerrarModalDetalle"
+                                class="text-gray-400 hover:text-white transition p-1 rounded-lg hover:bg-gray-700/50"
+                                title="Cerrar modal"
+                            >
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div class="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
+                            <!-- Ficha Informativa de la Factura -->
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-lg border border-gray-200 text-xs">
+                                <div>
+                                    <span class="text-gray-500 font-medium block">Proveedor</span>
+                                    <span class="text-gray-900 font-bold text-sm block">{{ $compraModal->proveedor->razon_social ?? 'No especificado' }}</span>
+                                    <span class="text-gray-500 font-mono text-[11px]">RUT: {{ $compraModal->proveedor->rut ?? 'S/R' }}</span>
+                                </div>
+                                <div>
+                                    <span class="text-gray-500 font-medium block">Carrera / Presupuesto</span>
+                                    <span class="text-gray-900 font-bold text-sm block">{{ $compraModal->carrera->nombre ?? 'General' }}</span>
+                                    <span class="text-gray-500 text-[11px]">Código: {{ $compraModal->carrera->codigo ?? '-' }}</span>
+                                </div>
+                                <div>
+                                    <span class="text-gray-500 font-medium block">Tipo de Ingreso & Respaldo</span>
+                                    @if($compraModal->documentos->isNotEmpty())
+                                        <div class="mt-1">
+                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-800">
+                                                ✓ Respaldo Digital (OCR)
+                                            </span>
+                                            <span class="block text-[10px] text-gray-500 font-mono truncate mt-0.5" title="{{ $compraModal->documentos->first()->hash_sha256 }}">
+                                                Hash: {{ Str::limit($compraModal->documentos->first()->hash_sha256, 18) }}
+                                            </span>
+                                        </div>
+                                    @else
+                                        <div class="mt-1">
+                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-800">
+                                                Ingreso Manual
+                                            </span>
+                                            <span class="block text-[11px] text-gray-500 mt-0.5">
+                                                Sin archivo digital adjunto
+                                            </span>
+                                        </div>
+                                    @endif
+                                </div>
+                            </div>
+
+                            <!-- Tabla de Ítems Ingresados -->
+                            <div>
+                                <div class="flex justify-between items-center mb-2">
+                                    <h4 class="text-sm font-bold text-gray-800 flex items-center gap-2">
+                                        <span>Ítems Ingresados al Inventario</span>
+                                        <span class="px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full text-xs font-semibold">
+                                            {{ $compraModal->detalles->count() }} ítem(s)
+                                        </span>
+                                    </h4>
+                                </div>
+
+                                <div class="border border-gray-200 rounded-lg overflow-hidden shadow-xs">
+                                    <table class="min-w-full divide-y divide-gray-200 text-xs">
+                                        <thead class="bg-gray-100 text-gray-700 font-bold uppercase">
+                                            <tr>
+                                                <th class="px-3 py-2 text-center w-10">#</th>
+                                                <th class="px-3 py-2 text-left">Descripción en Factura</th>
+                                                <th class="px-3 py-2 text-left">Insumo en Inventario</th>
+                                                <th class="px-3 py-2 text-right">Cantidad</th>
+                                                <th class="px-3 py-2 text-right">Costo Unitario</th>
+                                                <th class="px-3 py-2 text-right">Subtotal</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-200 bg-white">
+                                            @forelse($compraModal->detalles as $index => $det)
+                                                @php
+                                                    $subtotalLinea = ($det->cantidad * $det->costo_unitario) + $det->impuesto;
+                                                @endphp
+                                                <tr class="hover:bg-gray-50">
+                                                    <td class="px-3 py-2.5 text-center text-gray-400 font-medium">{{ $index + 1 }}</td>
+                                                    <td class="px-3 py-2.5 text-gray-900 font-medium">
+                                                        {{ $det->descripcion }}
+                                                    </td>
+                                                    <td class="px-3 py-2.5">
+                                                        @if($det->insumo)
+                                                            <div class="font-semibold text-gray-800">{{ $det->insumo->nombre }}</div>
+                                                            <div class="text-[11px] text-gray-500">
+                                                                Cód: <span class="font-mono">{{ $det->insumo->codigo_barras ?? 'S/C' }}</span> &bull; Stock: {{ (int)$det->insumo->stock_actual }} {{ $det->insumo->unidad }}
+                                                            </div>
+                                                        @else
+                                                            <span class="text-gray-400 italic">Sin asociar a catálogo</span>
+                                                        @endif
+                                                    </td>
+                                                    <td class="px-3 py-2.5 text-right font-semibold text-gray-800">
+                                                        {{ (float)$det->cantidad }} {{ $det->insumo?->unidad ?? 'unid.' }}
+                                                    </td>
+                                                    <td class="px-3 py-2.5 text-right text-gray-700">
+                                                        ${{ number_format($det->costo_unitario, 0, ',', '.') }}
+                                                    </td>
+                                                    <td class="px-3 py-2.5 text-right font-bold text-gray-900">
+                                                        ${{ number_format($subtotalLinea, 0, ',', '.') }}
+                                                    </td>
+                                                </tr>
+                                            @empty
+                                                <tr>
+                                                    <td colspan="6" class="px-4 py-4 text-center text-gray-400">
+                                                        Esta factura no tiene líneas de ítems registradas.
+                                                    </td>
+                                                </tr>
+                                            @endforelse
+                                        </tbody>
+                                        <tfoot class="bg-gray-50 font-bold border-t border-gray-200 text-gray-800">
+                                            <tr>
+                                                <td colspan="5" class="px-3 py-2.5 text-right uppercase text-[11px] text-gray-600">
+                                                    Total Factura:
+                                                </td>
+                                                <td class="px-3 py-2.5 text-right text-sm text-red-700">
+                                                    ${{ number_format($compraModal->monto_total, 0, ',', '.') }}
+                                                </td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Footer -->
+                        <div class="bg-gray-50 px-6 py-3 border-t flex justify-end">
+                            <button
+                                type="button"
+                                wire:click="cerrarModalDetalle"
+                                class="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-md text-xs font-semibold transition cursor-pointer"
+                            >
+                                Cerrar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            @endif
         @endif
     </div>
 </div>

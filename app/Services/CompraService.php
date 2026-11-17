@@ -175,7 +175,8 @@ class CompraService
     public function listarCompras(?int $carreraId = null): Collection
     {
         $query = Compra::with(['proveedor', 'carrera', 'detalles.insumo', 'documentos'])
-            ->latest('fecha');
+            ->latest('fecha')
+            ->orderByDesc('id');
 
         if ($carreraId) {
             $query->where('carrera_id', $carreraId);

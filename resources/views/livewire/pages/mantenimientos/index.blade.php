@@ -13,6 +13,7 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
@@ -35,6 +36,7 @@ new #[Layout('layouts.app')] class extends Component
     public ?int $equipo_id = null;
     public ?int $proveedor_id = null;
     public string $tipo = 'preventivo';
+    public string $subtipo = 'REV-A';
     public string $frecuencia = 'semestral';
     public string $fecha_programada = '';
     public string $observaciones = '';
@@ -70,9 +72,43 @@ new #[Layout('layouts.app')] class extends Component
         $primerEquipo = Equipo::where('estado', '!=', 'dado_de_baja')->first();
         if ($primerEquipo) {
             $this->equipo_id = $primerEquipo->id;
+            if ($primerEquipo->requiere_calibracion) {
+                $this->subtipo = 'REV-C';
+            }
         }
         $this->fecha_programada = now()->addMonths(6)->toDateString();
         $this->fecha_realizada = now()->toDateString();
+    }
+
+    public function updatedEquipoId($valor): void
+    {
+        if ($valor) {
+            $equipo = Equipo::find($valor);
+            if ($equipo?->requiere_calibracion && $this->tipo === 'preventivo') {
+                $this->subtipo = 'REV-C';
+            }
+        }
+    }
+
+    public function updatedSubtipo($valor): void
+    {
+        if (isset(Mantenimiento::SUBTIPOS[$valor])) {
+            $this->tipo = Mantenimiento::SUBTIPOS[$valor]['tipo_base'];
+            if ($this->tipo === 'correctivo') {
+                $this->frecuencia = 'no_aplica';
+            } elseif ($this->frecuencia === 'no_aplica') {
+                $this->frecuencia = 'semestral';
+            }
+        }
+    }
+
+    public function equipoSeleccionadoRequiereCalibracion(): bool
+    {
+        if (! $this->equipo_id) {
+            return false;
+        }
+
+        return (bool) Equipo::where('id', $this->equipo_id)->value('requiere_calibracion');
     }
 
     public function cambiarPestana(string $pestana): void
@@ -177,16 +213,26 @@ new #[Layout('layouts.app')] class extends Component
 
     public function proveedores()
     {
-        return Proveedor::where('activo', true)->orderBy('razon_social')->get();
+        return Proveedor::paraMantenimiento()->orderBy('razon_social')->get();
     }
 
     public function abrirModalProgramar(): void
     {
         $this->resetErrorBag();
         $this->tipo = 'preventivo';
+        $this->subtipo = 'REV-A';
         $this->frecuencia = 'semestral';
         $this->fecha_programada = now()->addMonths(6)->toDateString();
         $this->observaciones = '';
+        $this->proveedor_id = null;
+
+        if ($this->equipo_id) {
+            $equipo = Equipo::find($this->equipo_id);
+            if ($equipo?->requiere_calibracion) {
+                $this->subtipo = 'REV-C';
+            }
+        }
+
         $this->mostrarModalProgramar = true;
     }
 
@@ -194,10 +240,26 @@ new #[Layout('layouts.app')] class extends Component
     {
         Gate::authorize('create', Mantenimiento::class);
 
-        $this->validate([
+        $reglas = [
             'equipo_id' => 'required|exists:equipos,id',
-            'frecuencia' => 'required|in:semestral,anual',
+            'subtipo' => 'required|string|in:' . implode(',', array_keys(Mantenimiento::SUBTIPOS)),
             'fecha_programada' => 'required|date',
+        ];
+
+        if ($this->proveedor_id) {
+            $reglas['proveedor_id'] = [
+                'nullable',
+                Rule::exists('proveedores', 'id')
+                    ->where(fn ($q) => $q->where('activo', true)->whereIn('tipo', ['mantenimiento', 'ambos'])),
+            ];
+        }
+
+        if ($this->tipo === 'preventivo') {
+            $reglas['frecuencia'] = 'required|in:semestral,anual';
+        }
+
+        $this->validate($reglas, [
+            'proveedor_id.exists' => 'El proveedor seleccionado debe estar habilitado para servicios de mantenimiento.',
         ]);
 
         $equipo = Equipo::findOrFail($this->equipo_id);
@@ -205,11 +267,12 @@ new #[Layout('layouts.app')] class extends Component
         try {
             $servicio->programarMantenimiento(
                 $equipo,
-                'preventivo',
-                $this->frecuencia,
+                $this->tipo,
+                $this->tipo === 'preventivo' ? $this->frecuencia : 'no_aplica',
                 $this->fecha_programada,
                 $this->proveedor_id ? (int) $this->proveedor_id : null,
-                $this->observaciones
+                $this->observaciones,
+                $this->subtipo
             );
 
             $this->mostrarModalProgramar = false;
@@ -532,8 +595,56 @@ new #[Layout('layouts.app')] class extends Component
                                             {{ $m->equipo?->nombre }}
                                             <div class="text-xs text-gray-500 font-mono">{{ $m->equipo?->codigo_barras }} · {{ $m->equipo?->ubicacion?->nombre }}</div>
                                         </td>
-                                        <td class="px-6 py-4 capitalize text-gray-700">
-                                            {{ $m->tipo }} ({{ $m->frecuencia ?? 'N/A' }})
+                                        <td class="px-6 py-4">
+                                            @php
+                                                $subData = \App\Models\Mantenimiento::SUBTIPOS[$m->subtipo ?? 'REV-A'] ?? [
+                                                    'codigo' => $m->subtipo ?? 'REV-A',
+                                                    'nombre' => ucfirst($m->tipo),
+                                                    'badge_color' => 'bg-gray-100 text-gray-800 border-gray-200',
+                                                    'descripcion' => 'Mantenimiento registrado según protocolo institucional.',
+                                                ];
+                                            @endphp
+                                            <div class="flex items-center gap-1.5 flex-wrap">
+                                                <span class="text-xs font-semibold text-gray-900">
+                                                    {{ $subData['nombre'] }}
+                                                </span>
+                                                <!-- Burbuja de Ayuda Contextual (?) -->
+                                                <div class="relative inline-flex items-center" x-data="{ open: false }">
+                                                    <button 
+                                                        type="button" 
+                                                        @mouseenter="open = true" 
+                                                        @mouseleave="open = false" 
+                                                        @click="open = !open"
+                                                        class="text-blue-600 hover:text-blue-800 focus:outline-none transition-transform hover:scale-110"
+                                                        title="Ayuda contextual: {{ $subData['nombre'] }}"
+                                                    >
+                                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                        </svg>
+                                                    </button>
+                                                    <div 
+                                                        x-show="open" 
+                                                        x-cloak 
+                                                        @click.outside="open = false"
+                                                        x-transition:enter="transition ease-out duration-150"
+                                                        x-transition:enter-start="opacity-0 transform scale-95"
+                                                        x-transition:enter-end="opacity-100 transform scale-100"
+                                                        x-transition:leave="transition ease-in duration-100"
+                                                        x-transition:leave-start="opacity-100 transform scale-100"
+                                                        x-transition:leave-end="opacity-0 transform scale-95"
+                                                        class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-slate-900 text-white text-xs rounded-lg shadow-xl z-50 pointer-events-none"
+                                                    >
+                                                        <div class="font-bold text-amber-300 mb-1">
+                                                            {{ $subData['nombre'] }}
+                                                        </div>
+                                                        <p class="text-slate-200 text-[11px] leading-relaxed">{{ $subData['descripcion'] }}</p>
+                                                        <div class="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-900"></div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="text-[11px] text-gray-500 capitalize mt-0.5">
+                                                {{ $m->tipo }} · {{ $m->frecuencia ? ucfirst($m->frecuencia) : 'N/A' }}
+                                            </div>
                                         </td>
                                         <td class="px-6 py-4 whitespace-nowrap">
                                             @php $c = $m->equipo?->criticidad; @endphp
@@ -608,8 +719,56 @@ new #[Layout('layouts.app')] class extends Component
                                             {{ $m->equipo?->nombre }}
                                             <div class="text-xs text-gray-500 font-mono">{{ $m->equipo?->codigo_barras }} · {{ $m->equipo?->ubicacion?->nombre }}</div>
                                         </td>
-                                        <td class="px-6 py-4 capitalize text-gray-700">
-                                            {{ $m->tipo }} ({{ $m->frecuencia ?? 'N/A' }})
+                                        <td class="px-6 py-4">
+                                            @php
+                                                $subData = \App\Models\Mantenimiento::SUBTIPOS[$m->subtipo ?? 'REV-A'] ?? [
+                                                    'codigo' => $m->subtipo ?? 'REV-A',
+                                                    'nombre' => ucfirst($m->tipo),
+                                                    'badge_color' => 'bg-gray-100 text-gray-800 border-gray-200',
+                                                    'descripcion' => 'Mantenimiento registrado según protocolo institucional.',
+                                                ];
+                                            @endphp
+                                            <div class="flex items-center gap-1.5 flex-wrap">
+                                                <span class="text-xs font-semibold text-gray-900">
+                                                    {{ $subData['nombre'] }}
+                                                </span>
+                                                <!-- Burbuja de Ayuda Contextual (?) -->
+                                                <div class="relative inline-flex items-center" x-data="{ open: false }">
+                                                    <button 
+                                                        type="button" 
+                                                        @mouseenter="open = true" 
+                                                        @mouseleave="open = false" 
+                                                        @click="open = !open"
+                                                        class="text-blue-600 hover:text-blue-800 focus:outline-none transition-transform hover:scale-110"
+                                                        title="Ayuda contextual: {{ $subData['nombre'] }}"
+                                                    >
+                                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                        </svg>
+                                                    </button>
+                                                    <div 
+                                                        x-show="open" 
+                                                        x-cloak 
+                                                        @click.outside="open = false"
+                                                        x-transition:enter="transition ease-out duration-150"
+                                                        x-transition:enter-start="opacity-0 transform scale-95"
+                                                        x-transition:enter-end="opacity-100 transform scale-100"
+                                                        x-transition:leave="transition ease-in duration-100"
+                                                        x-transition:leave-start="opacity-100 transform scale-100"
+                                                        x-transition:leave-end="opacity-0 transform scale-95"
+                                                        class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 p-3 bg-slate-900 text-white text-xs rounded-lg shadow-xl z-50 pointer-events-none"
+                                                    >
+                                                        <div class="font-bold text-amber-300 mb-1">
+                                                            {{ $subData['nombre'] }}
+                                                        </div>
+                                                        <p class="text-slate-200 text-[11px] leading-relaxed">{{ $subData['descripcion'] }}</p>
+                                                        <div class="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-900"></div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="text-[11px] text-gray-500 capitalize mt-0.5">
+                                                {{ $m->tipo }} · {{ $m->frecuencia ? ucfirst($m->frecuencia) : 'N/A' }}
+                                            </div>
                                         </td>
                                         <td class="px-6 py-4 whitespace-nowrap">
                                             @php $c = $m->equipo?->criticidad; @endphp
@@ -788,29 +947,94 @@ new #[Layout('layouts.app')] class extends Component
                 <div class="space-y-4">
                     <div>
                         <label class="block text-xs font-semibold text-gray-700 uppercase mb-1">Equipo a Intervenir</label>
-                        <select wire:model="equipo_id" class="w-full text-sm rounded-md border-gray-300">
+                        <select wire:model.live="equipo_id" class="w-full text-sm rounded-md border-gray-300">
                             @foreach($this->equiposDisponibles() as $e)
-                                <option value="{{ $e->id }}">[{{ $e->codigo_barras ?? 'S/C' }}] {{ $e->nombre }}</option>
+                                <option value="{{ $e->id }}">
+                                    [{{ $e->codigo_barras ?? 'S/C' }}] {{ $e->nombre }} {{ $e->requiere_calibracion ? '· [Requiere Calibración]' : '' }}
+                                </option>
                             @endforeach
                         </select>
                         @error('equipo_id') <span class="text-xs text-red-600 font-medium">{{ $message }}</span> @enderror
+                        @if($this->equipoSeleccionadoRequiereCalibracion())
+                            <div class="mt-2 flex items-center gap-2 text-xs text-purple-900 bg-purple-50 p-2.5 rounded-md border border-purple-200">
+                                <svg class="w-4 h-4 text-purple-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                <span><strong>Estándar Académico INACAP:</strong> Este equipo requiere calibración y ajuste periódico según la matriz institucional (Sugerido: <strong>Calibración y Ajuste</strong>).</span>
+                            </div>
+                        @endif
                     </div>
 
-                    <div class="grid grid-cols-2 gap-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-xs font-semibold text-gray-700 uppercase mb-1">Tipo de Mantenimiento</label>
-                            <div class="px-3 py-2 bg-gray-50 border border-gray-200 rounded-md text-xs font-semibold text-gray-700 flex items-center gap-2">
-                                <span class="w-2 h-2 rounded-full bg-blue-600"></span>
-                                Preventivo Periódico
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="block text-xs font-semibold text-gray-700 uppercase">Tipo / Actividad</label>
+                                <!-- Burbuja de Ayuda Contextual (?) -->
+                                @php
+                                    $infoActual = \App\Models\Mantenimiento::SUBTIPOS[$subtipo] ?? \App\Models\Mantenimiento::SUBTIPOS['REV-A'];
+                                @endphp
+                                <div class="relative inline-flex items-center" x-data="{ open: false }">
+                                    <button 
+                                        type="button" 
+                                        @mouseenter="open = true" 
+                                        @mouseleave="open = false" 
+                                        @click="open = !open"
+                                        class="text-blue-600 hover:text-blue-800 focus:outline-none flex items-center gap-0.5 text-[11px] font-semibold"
+                                        title="Ayuda contextual: ¿Qué hace este tipo?"
+                                    >
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                        <span>¿Qué hace?</span>
+                                    </button>
+                                    <div 
+                                        x-show="open" 
+                                        x-cloak 
+                                        @click.outside="open = false"
+                                        x-transition:enter="transition ease-out duration-150"
+                                        x-transition:enter-start="opacity-0 transform scale-95"
+                                        x-transition:enter-end="opacity-100 transform scale-100"
+                                        x-transition:leave="transition ease-in duration-100"
+                                        x-transition:leave-start="opacity-100 transform scale-100"
+                                        x-transition:leave-end="opacity-0 transform scale-95"
+                                        class="absolute bottom-full right-0 mb-2 w-72 p-3 bg-slate-900 text-white text-xs rounded-lg shadow-2xl z-50 pointer-events-none"
+                                    >
+                                        <div class="font-bold text-amber-300 flex items-center justify-between border-b border-slate-700 pb-1 mb-1.5">
+                                            <span>{{ $infoActual['nombre'] }}</span>
+                                            <span class="text-[10px] uppercase font-mono px-1 py-0.5 rounded bg-slate-800 text-slate-300">{{ $infoActual['tipo_base'] }}</span>
+                                        </div>
+                                        <p class="text-slate-200 text-xs leading-relaxed">{{ $infoActual['descripcion'] }}</p>
+                                        <div class="absolute top-full right-4 border-4 border-transparent border-t-slate-900"></div>
+                                    </div>
+                                </div>
                             </div>
+                            <select wire:model.live="subtipo" class="w-full text-sm rounded-md border-gray-300">
+                                <optgroup label="Mantenimiento Preventivo">
+                                    <option value="REV-A">Revisión General</option>
+                                    <option value="REV-B">Mecánica y Eléctrica</option>
+                                    <option value="REV-C">Calibración y Ajuste</option>
+                                    <option value="PFG">Prueba Funcional</option>
+                                </optgroup>
+                                <optgroup label="Mantenimiento Correctivo">
+                                    <option value="MC-PLAN">Correctivo Programado</option>
+                                    <option value="MC-URG">Correctivo Emergencia</option>
+                                </optgroup>
+                            </select>
+                            @error('subtipo') <span class="text-xs text-red-600 font-medium">{{ $message }}</span> @enderror
                         </div>
+
                         <div>
                             <label class="block text-xs font-semibold text-gray-700 uppercase mb-1">Periodicidad</label>
-                            <select wire:model="frecuencia" class="w-full text-sm rounded-md border-gray-300">
-                                <option value="semestral">Semestral (6 meses)</option>
-                                <option value="anual">Anual (12 meses)</option>
-                            </select>
-                            @error('frecuencia') <span class="text-xs text-red-600 font-medium">{{ $message }}</span> @enderror
+                            @if($tipo === 'preventivo')
+                                <select wire:model="frecuencia" class="w-full text-sm rounded-md border-gray-300">
+                                    <option value="semestral">Semestral (6 meses)</option>
+                                    <option value="anual">Anual (12 meses)</option>
+                                </select>
+                                @error('frecuencia') <span class="text-xs text-red-600 font-medium">{{ $message }}</span> @enderror
+                            @else
+                                <div class="px-3 py-2 bg-gray-100 border border-gray-200 rounded-md text-xs text-gray-600 flex items-center justify-between">
+                                    <span>Puntual / Por evento</span>
+                                    <span class="text-[10px] uppercase px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold">No Aplica</span>
+                                </div>
+                            @endif
                         </div>
                     </div>
 

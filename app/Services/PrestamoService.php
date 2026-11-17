@@ -6,6 +6,7 @@ use App\Exceptions\EquipoNoDisponibleException;
 use App\Exceptions\OperacionDuplicadaException;
 use App\Exceptions\StockInsuficienteException;
 use App\Exceptions\StockReservadoClasesException;
+use App\Mail\AlertaRetrasoEstudianteMail;
 use App\Models\DetalleSolicitud;
 use App\Models\Devolucion;
 use App\Models\Entrega;
@@ -20,6 +21,7 @@ use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
 
@@ -794,5 +796,41 @@ class PrestamoService
 
             return $devolucion->fresh(['entrega.solicitud', 'recibidor']);
         });
+    }
+
+    /**
+     * Reporta por correo a los administradores un préstamo a estudiante con retraso (hora acordada superada).
+     */
+    public function reportarRetrasoEstudiante(Entrega $entrega, User $reportador): void
+    {
+        if ($entrega->receptor_tipo !== 'estudiante') {
+            throw ValidationException::withMessages([
+                'entrega' => 'Solo se pueden reportar retrasos en préstamos otorgados a estudiantes.',
+            ]);
+        }
+
+        if (! $entrega->esta_vencida) {
+            throw ValidationException::withMessages([
+                'entrega' => 'El préstamo aún no supera la fecha y hora acordada para su devolución.',
+            ]);
+        }
+
+        $destinatarios = User::where('rol', 'administrador')
+            ->where('activo', true)
+            ->pluck('email')
+            ->filter()
+            ->all();
+
+        if (empty($destinatarios)) {
+            $destinatarios = [config('mail.from.address', 'admin@inacap.cl')];
+        }
+
+        $entrega->loadMissing(['solicitud.detalles.equipo', 'solicitud.detalles.insumo', 'entregador']);
+
+        Mail::to($destinatarios)->send(new AlertaRetrasoEstudianteMail($entrega));
+
+        $entrega->update([
+            'reportado_en' => now(),
+        ]);
     }
 }

@@ -6,6 +6,7 @@ use App\Models\Carrera;
 use App\Models\Equipo;
 use App\Models\Falla;
 use App\Models\Mantenimiento;
+use App\Models\Proveedor;
 use App\Models\Ubicacion;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -453,5 +454,65 @@ class PanoleroMantenimientosFlujoTest extends TestCase
 
         $this->assertEquals('en_proceso', $mantenimiento->fresh()->estado);
         $this->assertEquals('en_mantenimiento', $this->equipo->fresh()->estado);
+    }
+
+    public function test_modal_programar_mantenimiento_solo_lista_proveedores_de_mantenimiento_y_excluye_insumos(): void
+    {
+        $this->actingAs($this->panolero);
+
+        $provInsumos = Proveedor::create([
+            'rut' => '76.111.111-1',
+            'razon_social' => 'Insumos y Redes Austral SpA',
+            'correo' => 'ventas@redesaustral.cl',
+            'tipo' => 'insumos',
+            'activo' => true,
+        ]);
+
+        $provMantenimiento = Proveedor::create([
+            'rut' => '76.222.222-2',
+            'razon_social' => 'Soporte y Tecnología Computacional Ltda.',
+            'correo' => 'contacto@soportetec.cl',
+            'tipo' => 'mantenimiento',
+            'activo' => true,
+        ]);
+
+        $provAmbos = Proveedor::create([
+            'rut' => '76.333.333-3',
+            'razon_social' => 'Comercializadora Hardware Temuco SpA',
+            'correo' => 'ventas@hardtemuco.cl',
+            'tipo' => 'ambos',
+            'activo' => true,
+        ]);
+
+        $component = Volt::test('pages.mantenimientos.index')
+            ->call('abrirModalProgramar')
+            ->assertSet('mostrarModalProgramar', true)
+            ->assertSee('Soporte y Tecnología Computacional Ltda.')
+            ->assertSee('Comercializadora Hardware Temuco SpA')
+            ->assertDontSee('Insumos y Redes Austral SpA');
+
+        // Intentar guardar con proveedor de tipo insumos debe fallar validación
+        $component
+            ->set('equipo_id', $this->equipo->id)
+            ->set('frecuencia', 'semestral')
+            ->set('fecha_programada', now()->addMonths(6)->toDateString())
+            ->set('proveedor_id', $provInsumos->id)
+            ->call('guardarMantenimiento')
+            ->assertHasErrors(['proveedor_id'])
+            ->assertSet('mostrarModalProgramar', true);
+
+        // Guardar con proveedor de mantenimiento debe ser exitoso
+        $component
+            ->set('proveedor_id', $provMantenimiento->id)
+            ->call('guardarMantenimiento')
+            ->assertHasNoErrors()
+            ->assertSet('mostrarModalProgramar', false)
+            ->assertSee('Mantenimiento preventivo programado con éxito');
+
+        $this->assertDatabaseHas('mantenimientos', [
+            'equipo_id' => $this->equipo->id,
+            'proveedor_id' => $provMantenimiento->id,
+            'estado' => 'programado',
+        ]);
     }
 }

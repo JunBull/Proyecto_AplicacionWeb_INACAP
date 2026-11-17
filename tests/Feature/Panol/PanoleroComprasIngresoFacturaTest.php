@@ -4,6 +4,7 @@ namespace Tests\Feature\Panol;
 
 use App\Models\Carrera;
 use App\Models\Compra;
+use App\Models\CompraDetalle;
 use App\Models\Insumo;
 use App\Models\Proveedor;
 use App\Models\Ubicacion;
@@ -203,5 +204,46 @@ class PanoleroComprasIngresoFacturaTest extends TestCase
         $response->assertStatus(200);
         $response->assertSee('Ingreso por Factura');
         $response->assertDontSee('Compras y OCR Documental');
+    }
+
+    public function test_ingreso_manual_permite_ver_items_ingresados_en_tabla_y_modal(): void
+    {
+        $this->actingAs($this->panolero);
+
+        $compraManual = Compra::create([
+            'proveedor_id' => $this->proveedor->id,
+            'carrera_id' => $this->carrera->id,
+            'numero_documento' => 'FAC-MANUAL-123',
+            'fecha' => '2026-11-12',
+            'monto_total' => 25000,
+            'estado' => 'ingresada_inventario',
+        ]);
+
+        CompraDetalle::create([
+            'compra_id' => $compraManual->id,
+            'insumo_id' => $this->insumo->id,
+            'descripcion' => 'Pack Conectores RJ45 Dorados',
+            'cantidad' => 25,
+            'costo_unitario' => 1000,
+            'impuesto' => 0,
+        ]);
+
+        Volt::test('pages.compras.index')
+            ->assertSee('FAC-MANUAL-123')
+            ->assertSee('Pack Conectores RJ45 Dorados')
+            ->assertSee('1 ítem(s)')
+            ->assertSee('Sin archivo')
+            ->assertSee('Ver ítems')
+            ->call('verDetalle', $compraManual->id)
+            ->assertSet('mostrarModalDetalle', true)
+            ->assertSet('compraDetalleId', $compraManual->id)
+            ->assertSee('Detalle de Factura / Compra')
+            ->assertSee('FAC-MANUAL-123')
+            ->assertSee('Ingreso Manual')
+            ->assertSee('Pack Conectores RJ45 Dorados')
+            ->assertSee('Conector RJ-45 Cat6')
+            ->assertSee('$25.000')
+            ->call('cerrarModalDetalle')
+            ->assertSet('mostrarModalDetalle', false);
     }
 }

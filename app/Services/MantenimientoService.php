@@ -27,10 +27,11 @@ class MantenimientoService
     ];
 
     /**
-     * Programa un mantenimiento preventivo periódico o correctivo (CP-05).
+     * Programa un mantenimiento preventivo periódico o correctivo con subtipo técnico (CP-05 e Instructivo v2.0).
      *
      * @param  'preventivo'|'correctivo'  $tipo
      * @param  'semestral'|'anual'|'no_aplica'|null  $frecuencia
+     * @param  'REV-A'|'REV-B'|'REV-C'|'PFG'|'MC-PLAN'|'MC-URG'|null  $subtipo
      */
     public function programarMantenimiento(
         Equipo $equipo,
@@ -38,7 +39,8 @@ class MantenimientoService
         ?string $frecuencia,
         CarbonInterface|string $fechaProgramada,
         ?int $proveedorId = null,
-        ?string $observaciones = null
+        ?string $observaciones = null,
+        ?string $subtipo = null
     ): Mantenimiento {
         $fecha = is_string($fechaProgramada) ? Carbon::parse($fechaProgramada) : $fechaProgramada;
 
@@ -48,16 +50,21 @@ class MantenimientoService
             ]);
         }
 
-        if ($proveedorId && ! Proveedor::where('id', $proveedorId)->exists()) {
+        if ($proveedorId && ! Proveedor::paraMantenimiento()->where('id', $proveedorId)->exists()) {
             throw ValidationException::withMessages([
-                'proveedor_id' => 'El proveedor especificado no existe.',
+                'proveedor_id' => 'El proveedor especificado no está autorizado para servicios de mantenimiento.',
             ]);
         }
+
+        $subtipoValido = $subtipo && array_key_exists($subtipo, Mantenimiento::SUBTIPOS)
+            ? $subtipo
+            : ($tipo === 'correctivo' ? 'MC-PLAN' : 'REV-A');
 
         return Mantenimiento::create([
             'equipo_id' => $equipo->id,
             'proveedor_id' => $proveedorId,
             'tipo' => $tipo,
+            'subtipo' => $subtipoValido,
             'frecuencia' => $frecuencia ?? 'no_aplica',
             'fecha_programada' => $fecha->toDateString(),
             'fecha_realizada' => null,

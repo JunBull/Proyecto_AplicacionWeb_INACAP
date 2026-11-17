@@ -159,6 +159,21 @@ new #[Layout('layouts.app')] class extends Component
             session()->flash('error', 'Error al procesar devolución: ' . $e->getMessage());
         }
     }
+
+    public function reportarRetraso(int $entregaId, PrestamoService $prestamoService): void
+    {
+        $entrega = Entrega::findOrFail($entregaId);
+        Gate::authorize('procesarDevolucion', $entrega);
+
+        try {
+            $prestamoService->reportarRetrasoEstudiante($entrega, Auth::user());
+            session()->flash('mensaje', "Se ha enviado la alerta de retraso por correo a los administradores para el estudiante {$entrega->receptor_nombre} (#ENT-{$entrega->id}).");
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            session()->flash('error', $e->getMessage());
+        } catch (\Exception $e) {
+            session()->flash('error', 'Error al enviar reporte de retraso: ' . $e->getMessage());
+        }
+    }
 }; ?>
 
 <div class="py-6 px-3 sm:px-6 lg:px-8 max-w-7xl mx-auto">
@@ -264,21 +279,56 @@ new #[Layout('layouts.app')] class extends Component
                                     <span>Entrega: <strong class="text-slate-700">{{ $ent->fecha_entrega->format('d/m/Y H:i') }}</strong></span>
                                     @if($ent->hora_devolucion_acordada)
                                         <span>&bull; Límite Acordado: <strong class="text-amber-800 font-bold">{{ \Carbon\Carbon::parse($ent->hora_devolucion_acordada)->format('H:i') }} hrs</strong></span>
+                                        @if($ent->esta_vencida)
+                                            <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-800 inline-flex items-center gap-1">
+                                                <span>Retraso:</span>
+                                                <span>{{ $ent->retraso_humano }}</span>
+                                            </span>
+                                        @endif
                                     @endif
                                     <span>&bull; Despachado por: <strong class="text-slate-700">{{ $ent->entregador->name }}</strong></span>
                                     <span>&bull; Solicitud: <strong class="text-slate-700">#SOL-{{ str_pad($ent->solicitud_id, 5, '0', STR_PAD_LEFT) }}</strong></span>
                                 </div>
                             </div>
 
-                            <button
-                                wire:click="abrirModalDevolucion({{ $ent->id }})"
-                                class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition shadow-2xs flex items-center justify-center gap-1.5 shrink-0"
-                            >
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
-                                </svg>
-                                <span>Registrar Devolución</span>
-                            </button>
+                            <div class="flex items-center gap-2 shrink-0">
+                                @if($ent->receptor_tipo === 'estudiante' && $ent->esta_vencida)
+                                    <div class="flex items-center gap-1.5">
+                                        <button
+                                            type="button"
+                                            wire:click="reportarRetraso({{ $ent->id }})"
+                                            wire:loading.attr="disabled"
+                                            wire:target="reportarRetraso({{ $ent->id }})"
+                                            class="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer"
+                                            title="Enviar reporte por retraso a los administradores por correo"
+                                        >
+                                            <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                            </svg>
+                                            <span wire:loading.remove wire:target="reportarRetraso({{ $ent->id }})">
+                                                {{ $ent->reportado_en ? 'Re-reportar' : 'REPORTAR' }}
+                                            </span>
+                                            <span wire:loading wire:target="reportarRetraso({{ $ent->id }})">Reportando...</span>
+                                        </button>
+                                        @if($ent->reportado_en)
+                                            <span class="text-[10px] text-amber-700 font-semibold" title="Último reporte: {{ $ent->reportado_en->format('d/m/Y H:i') }}">
+                                                ✓ Reportado
+                                            </span>
+                                        @endif
+                                    </div>
+                                @endif
+
+                                <button
+                                    type="button"
+                                    wire:click="abrirModalDevolucion({{ $ent->id }})"
+                                    class="px-4 py-2 bg-red-700 hover:bg-red-800 text-white text-xs font-bold rounded-xl transition shadow-2xs flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
+                                >
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                                    </svg>
+                                    <span>Registrar Devolución</span>
+                                </button>
+                            </div>
                         </div>
 
                         <!-- Ítems Retornables -->
@@ -301,7 +351,7 @@ new #[Layout('layouts.app')] class extends Component
                                             </div>
                                             <div class="text-right text-xs">
                                                 <span class="text-slate-500">Entregado: {{ $entregada }} &bull; Devuelto: {{ $devuelta }}</span>
-                                                <span class="ml-2 font-bold {{ $pendiente > 0 ? 'text-indigo-700' : 'text-emerald-600' }}">
+                                                <span class="ml-2 font-bold {{ $pendiente > 0 ? 'text-red-700' : 'text-emerald-600' }}">
                                                     Pendiente: {{ $pendiente }}
                                                 </span>
                                             </div>
@@ -324,7 +374,7 @@ new #[Layout('layouts.app')] class extends Component
     @if($mostrarModalDevolucion && $entregaDevolucionId)
         <div class="fixed inset-0 z-50 overflow-y-auto bg-black/50 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
             <div class="bg-white rounded-2xl shadow-xl w-full max-w-xl overflow-hidden">
-                <div class="px-5 py-4 bg-indigo-700 text-white flex items-center justify-between">
+                <div class="px-5 py-4 bg-red-700 text-white flex items-center justify-between">
                     <h3 class="text-sm font-bold flex items-center gap-2">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
@@ -368,7 +418,7 @@ new #[Layout('layouts.app')] class extends Component
                                                 min="0.01"
                                                 max="{{ $item['max'] }}"
                                                 wire:model="itemsDevolucionForm.{{ $detId }}.cantidad"
-                                                class="w-full text-xs border-slate-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 py-1"
+                                                class="w-full text-xs border-slate-300 rounded-lg focus:ring-red-500 focus:border-red-500 py-1"
                                             />
                                         @endif
                                     </div>
@@ -377,7 +427,7 @@ new #[Layout('layouts.app')] class extends Component
                                         <label class="block text-[11px] font-medium text-slate-700 mb-0.5">Estado Físico:</label>
                                         <select
                                             wire:model.live="itemsDevolucionForm.{{ $detId }}.conforme"
-                                            class="w-full text-xs border-slate-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 py-1"
+                                            class="w-full text-xs border-slate-300 rounded-lg focus:ring-red-500 focus:border-red-500 py-1"
                                         >
                                             <option value="1">Conforme (Buen estado / Operativo)</option>
                                             <option value="0">Con Daños / Desperfectos</option>
@@ -406,7 +456,7 @@ new #[Layout('layouts.app')] class extends Component
                             wire:model="observacionesDevolucion"
                             rows="2"
                             placeholder="Notas adicionales sobre la entrega o el estado general..."
-                            class="w-full text-xs border-slate-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+                            class="w-full text-xs border-slate-300 rounded-lg focus:ring-red-500 focus:border-red-500"
                         ></textarea>
                     </div>
                 </div>
@@ -423,7 +473,7 @@ new #[Layout('layouts.app')] class extends Component
                         type="button"
                         wire:click="confirmarDevolucion"
                         wire:loading.attr="disabled"
-                        class="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg shadow-sm transition flex items-center gap-1.5"
+                        class="px-4 py-2 text-xs font-bold text-white bg-red-700 hover:bg-red-800 disabled:opacity-50 rounded-lg shadow-sm transition flex items-center gap-1.5"
                     >
                         <span wire:loading.remove wire:target="confirmarDevolucion">Confirmar Devolución e Inspección</span>
                         <span wire:loading wire:target="confirmarDevolucion">Procesando...</span>
