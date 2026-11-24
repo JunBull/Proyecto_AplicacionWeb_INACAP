@@ -41,7 +41,7 @@ new class extends Component
                     @if(auth()->user()->rol !== 'docente')
                         <!-- Desplegable: Operaciones -->
                         @php
-                            $isOperacionesActive = request()->routeIs('panol.despacho', 'panol.prestamos', 'panol.devoluciones', 'panol.inventario', 'panol.etiquetas');
+                            $isOperacionesActive = request()->routeIs('panol.despacho', 'panol.prestamos', 'panol.devoluciones', 'panol.etiquetas');
                         @endphp
                         <div class="relative inline-flex items-center h-16" x-data="{ openOperaciones: false }" @click.outside="openOperaciones = false" @close.stop="openOperaciones = false">
                             <button 
@@ -82,13 +82,6 @@ new class extends Component
                                     <span>Devoluciones</span>
                                 </a>
 
-                                <a href="{{ route('panol.inventario') }}" class="flex items-center gap-2.5 px-3 py-2 text-xs rounded-lg transition {{ request()->routeIs('panol.inventario') ? 'bg-red-50 text-red-700 font-semibold' : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900 font-medium' }}" wire:navigate>
-                                    <svg class="w-4 h-4 {{ request()->routeIs('panol.inventario') ? 'text-red-700' : 'text-slate-400' }} shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                                    </svg>
-                                    <span>Inventario</span>
-                                </a>
-
                                 <a href="{{ route('panol.etiquetas') }}" class="flex items-center gap-2.5 px-3 py-2 text-xs rounded-lg transition {{ request()->routeIs('panol.etiquetas') ? 'bg-red-50 text-red-700 font-semibold' : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900 font-medium' }}" wire:navigate>
                                     <svg class="w-4 h-4 {{ request()->routeIs('panol.etiquetas') ? 'text-red-700' : 'text-slate-400' }} shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
@@ -100,7 +93,7 @@ new class extends Component
 
                         <!-- Desplegable: Activos -->
                         @php
-                            $isActivosActive = request()->routeIs('panol.equipos', 'panol.mantenimientos', 'panol.bajas');
+                            $isActivosActive = request()->routeIs('panol.equipos', 'panol.inventario', 'panol.mantenimientos', 'panol.bajas');
                         @endphp
                         <div class="relative inline-flex items-center h-16" x-data="{ openActivos: false }" @click.outside="openActivos = false" @close.stop="openActivos = false">
                             <button 
@@ -134,6 +127,13 @@ new class extends Component
                                     <div class="leading-tight">Equipos</div>
                                 </a>
 
+                                <a href="{{ route('panol.inventario') }}" class="flex items-center gap-2.5 px-3 py-2 text-xs rounded-lg transition {{ request()->routeIs('panol.inventario') ? 'bg-red-50 text-red-700 font-semibold' : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900 font-medium' }}" wire:navigate>
+                                    <svg class="w-4 h-4 {{ request()->routeIs('panol.inventario') ? 'text-red-700' : 'text-slate-400' }} shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                                    </svg>
+                                    <div class="leading-tight">Insumos</div>
+                                </a>
+
                                 <a href="{{ route('panol.mantenimientos') }}" class="flex items-center gap-2.5 px-3 py-2 text-xs rounded-lg transition {{ request()->routeIs('panol.mantenimientos') ? 'bg-red-50 text-red-700 font-semibold' : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900 font-medium' }}" wire:navigate>
                                     <svg class="w-4 h-4 {{ request()->routeIs('panol.mantenimientos') ? 'text-red-700' : 'text-slate-400' }} shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -151,57 +151,59 @@ new class extends Component
                             </div>
                         </div>
 
-                        <!-- Desplegable: Adquisiciones -->
-                        @php
-                            $isAdquisicionesActive = request()->routeIs('panol.proveedores', 'panol.cotizaciones', 'panol.compras');
-                        @endphp
-                        <div class="relative inline-flex items-center h-16" x-data="{ openAdquisiciones: false }" @click.outside="openAdquisiciones = false" @close.stop="openAdquisiciones = false">
-                            <button 
-                                @click="openAdquisiciones = ! openAdquisiciones" 
-                                type="button" 
-                                class="inline-flex items-center gap-1.5 px-2.5 py-1.5 border-b-2 text-xs lg:text-sm transition duration-150 ease-in-out focus:outline-none rounded-t-md {{ $isAdquisicionesActive ? 'border-red-700 text-red-700 font-semibold' : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300 font-medium' }}"
-                                :aria-expanded="openAdquisiciones.toString()"
-                            >
-                                <span>Adquisiciones</span>
-                                <svg class="w-3.5 h-3.5 text-slate-400 transition-transform duration-200" :class="{ 'rotate-180 text-red-700': openAdquisiciones }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" />
-                                </svg>
-                            </button>
-
-                            <div 
-                                x-show="openAdquisiciones" 
-                                x-transition:enter="transition ease-out duration-150"
-                                x-transition:enter-start="opacity-0 scale-95 -translate-y-1"
-                                x-transition:enter-end="opacity-100 scale-100 translate-y-0"
-                                x-transition:leave="transition ease-in duration-100"
-                                x-transition:leave-start="opacity-100 scale-100 translate-y-0"
-                                x-transition:leave-end="opacity-0 scale-95 -translate-y-1"
-                                class="absolute left-0 top-full z-50 mt-1 w-56 rounded-xl bg-white shadow-xl ring-1 ring-black/5 border border-slate-200/80 p-1.5 focus:outline-none"
-                                style="display: none;"
-                                @click="openAdquisiciones = false"
-                            >
-                                <a href="{{ route('panol.proveedores') }}" class="flex items-center gap-2.5 px-3 py-2 text-xs rounded-lg transition {{ request()->routeIs('panol.proveedores') ? 'bg-red-50 text-red-700 font-semibold' : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900 font-medium' }}" wire:navigate>
-                                    <svg class="w-4 h-4 {{ request()->routeIs('panol.proveedores') ? 'text-red-700' : 'text-slate-400' }} shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                        <!-- Desplegable: Adquisiciones (Exclusivo Administrador) -->
+                        @if(auth()->user()->rol === 'administrador')
+                            @php
+                                $isAdquisicionesActive = request()->routeIs('admin.proveedores', 'admin.cotizaciones', 'admin.compras');
+                            @endphp
+                            <div class="relative inline-flex items-center h-16" x-data="{ openAdquisiciones: false }" @click.outside="openAdquisiciones = false" @close.stop="openAdquisiciones = false">
+                                <button 
+                                    @click="openAdquisiciones = ! openAdquisiciones" 
+                                    type="button" 
+                                    class="inline-flex items-center gap-1.5 px-2.5 py-1.5 border-b-2 text-xs lg:text-sm transition duration-150 ease-in-out focus:outline-none rounded-t-md {{ $isAdquisicionesActive ? 'border-red-700 text-red-700 font-semibold' : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300 font-medium' }}"
+                                    :aria-expanded="openAdquisiciones.toString()"
+                                >
+                                    <span>Adquisiciones</span>
+                                    <svg class="w-3.5 h-3.5 text-slate-400 transition-transform duration-200" :class="{ 'rotate-180 text-red-700': openAdquisiciones }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" />
                                     </svg>
-                                    <span>Proveedores</span>
-                                </a>
+                                </button>
 
-                                <a href="{{ route('panol.cotizaciones') }}" class="flex items-center gap-2.5 px-3 py-2 text-xs rounded-lg transition {{ request()->routeIs('panol.cotizaciones') ? 'bg-red-50 text-red-700 font-semibold' : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900 font-medium' }}" wire:navigate>
-                                    <svg class="w-4 h-4 {{ request()->routeIs('panol.cotizaciones') ? 'text-red-700' : 'text-slate-400' }} shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                    </svg>
-                                    <span>Solicitudes de Cotización</span>
-                                </a>
+                                <div 
+                                    x-show="openAdquisiciones" 
+                                    x-transition:enter="transition ease-out duration-150"
+                                    x-transition:enter-start="opacity-0 scale-95 -translate-y-1"
+                                    x-transition:enter-end="opacity-100 scale-100 translate-y-0"
+                                    x-transition:leave="transition ease-in duration-100"
+                                    x-transition:leave-start="opacity-100 scale-100 translate-y-0"
+                                    x-transition:leave-end="opacity-0 scale-95 -translate-y-1"
+                                    class="absolute left-0 top-full z-50 mt-1 w-56 rounded-xl bg-white shadow-xl ring-1 ring-black/5 border border-slate-200/80 p-1.5 focus:outline-none"
+                                    style="display: none;"
+                                    @click="openAdquisiciones = false"
+                                >
+                                    <a href="{{ route('admin.proveedores') }}" class="flex items-center gap-2.5 px-3 py-2 text-xs rounded-lg transition {{ request()->routeIs('admin.proveedores') ? 'bg-red-50 text-red-700 font-semibold' : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900 font-medium' }}" wire:navigate>
+                                        <svg class="w-4 h-4 {{ request()->routeIs('admin.proveedores') ? 'text-red-700' : 'text-slate-400' }} shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                                        </svg>
+                                        <span>Proveedores</span>
+                                    </a>
 
-                                <a href="{{ route('panol.compras') }}" class="flex items-center gap-2.5 px-3 py-2 text-xs rounded-lg transition {{ request()->routeIs('panol.compras') ? 'bg-red-50 text-red-700 font-semibold' : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900 font-medium' }}" wire:navigate>
-                                    <svg class="w-4 h-4 {{ request()->routeIs('panol.compras') ? 'text-red-700' : 'text-slate-400' }} shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                    </svg>
-                                    <span>Ingreso por Factura</span>
-                                </a>
+                                    <a href="{{ route('admin.cotizaciones') }}" class="flex items-center gap-2.5 px-3 py-2 text-xs rounded-lg transition {{ request()->routeIs('admin.cotizaciones') ? 'bg-red-50 text-red-700 font-semibold' : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900 font-medium' }}" wire:navigate>
+                                        <svg class="w-4 h-4 {{ request()->routeIs('admin.cotizaciones') ? 'text-red-700' : 'text-slate-400' }} shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                        </svg>
+                                        <span>Solicitudes de Cotización</span>
+                                    </a>
+
+                                    <a href="{{ route('admin.compras') }}" class="flex items-center gap-2.5 px-3 py-2 text-xs rounded-lg transition {{ request()->routeIs('admin.compras') ? 'bg-red-50 text-red-700 font-semibold' : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900 font-medium' }}" wire:navigate>
+                                        <svg class="w-4 h-4 {{ request()->routeIs('admin.compras') ? 'text-red-700' : 'text-slate-400' }} shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                        <span>Ingreso por Factura</span>
+                                    </a>
+                                </div>
                             </div>
-                        </div>
+                        @endif
 
                         <!-- Desplegable: Administración (Exclusivo Administrador) -->
                         @if(auth()->user()->rol === 'administrador')
@@ -369,9 +371,6 @@ new class extends Component
                 <x-responsive-nav-link :href="route('panol.devoluciones')" :active="request()->routeIs('panol.devoluciones')" wire:navigate>
                     Devoluciones
                 </x-responsive-nav-link>
-                <x-responsive-nav-link :href="route('panol.inventario')" :active="request()->routeIs('panol.inventario')" wire:navigate>
-                    Inventario
-                </x-responsive-nav-link>
                 <x-responsive-nav-link :href="route('panol.etiquetas')" :active="request()->routeIs('panol.etiquetas')" wire:navigate>
                     Etiquetas
                 </x-responsive-nav-link>
@@ -383,6 +382,9 @@ new class extends Component
                 <x-responsive-nav-link :href="route('panol.equipos')" :active="request()->routeIs('panol.equipos')" wire:navigate>
                     Equipos
                 </x-responsive-nav-link>
+                <x-responsive-nav-link :href="route('panol.inventario')" :active="request()->routeIs('panol.inventario')" wire:navigate>
+                    Insumos
+                </x-responsive-nav-link>
                 <x-responsive-nav-link :href="route('panol.mantenimientos')" :active="request()->routeIs('panol.mantenimientos')" wire:navigate>
                     Mantenimientos
                 </x-responsive-nav-link>
@@ -390,21 +392,21 @@ new class extends Component
                     Bajas
                 </x-responsive-nav-link>
 
-                <!-- Sección Móvil: Adquisiciones -->
-                <div class="pt-3 pb-1">
-                    <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400 px-3">Adquisiciones y Compras</span>
-                </div>
-                <x-responsive-nav-link :href="route('panol.proveedores')" :active="request()->routeIs('panol.proveedores')" wire:navigate>
-                    Proveedores
-                </x-responsive-nav-link>
-                <x-responsive-nav-link :href="route('panol.cotizaciones')" :active="request()->routeIs('panol.cotizaciones')" wire:navigate>
-                    Solicitudes de Cotización
-                </x-responsive-nav-link>
-                <x-responsive-nav-link :href="route('panol.compras')" :active="request()->routeIs('panol.compras')" wire:navigate>
-                    Ingreso por Factura
-                </x-responsive-nav-link>
-
                 @if(auth()->user()->rol === 'administrador')
+                    <!-- Sección Móvil: Adquisiciones (Exclusivo Administrador) -->
+                    <div class="pt-3 pb-1">
+                        <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400 px-3">Adquisiciones y Compras</span>
+                    </div>
+                    <x-responsive-nav-link :href="route('admin.proveedores')" :active="request()->routeIs('admin.proveedores')" wire:navigate>
+                        Proveedores
+                    </x-responsive-nav-link>
+                    <x-responsive-nav-link :href="route('admin.cotizaciones')" :active="request()->routeIs('admin.cotizaciones')" wire:navigate>
+                        Solicitudes de Cotización
+                    </x-responsive-nav-link>
+                    <x-responsive-nav-link :href="route('admin.compras')" :active="request()->routeIs('admin.compras')" wire:navigate>
+                        Ingreso por Factura
+                    </x-responsive-nav-link>
+
                     <!-- Sección Móvil: Administración -->
                     <div class="pt-3 pb-1">
                         <span class="text-[11px] font-bold uppercase tracking-wider text-slate-400 px-3">Administración del Sistema</span>

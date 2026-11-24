@@ -93,11 +93,16 @@ class FallaService
             ]);
         }
 
-        // Restricción exclusiva: exactamente uno debe estar definido
-        if (($equipoId === null && $insumoId === null) || ($equipoId !== null && $insumoId !== null)) {
-            throw ValidationException::withMessages([
-                'recurso' => 'La incidencia debe referenciar exclusivamente a un equipo o a un insumo.',
-            ]);
+        if ($tipoItem === 'otro') {
+            $equipoId = null;
+            $insumoId = null;
+        } else {
+            // Restricción exclusiva: exactamente uno debe estar definido para equipo o insumo
+            if (($equipoId === null && $insumoId === null) || ($equipoId !== null && $insumoId !== null)) {
+                throw ValidationException::withMessages([
+                    'recurso' => 'La incidencia debe referenciar exclusivamente a un equipo o a un insumo.',
+                ]);
+            }
         }
 
         return DB::transaction(function () use ($informante, $equipoId, $insumoId, $ubicacionId, $tipoDestino, $edificioDestino, $espacioDestino, $descripcionLimpia) {

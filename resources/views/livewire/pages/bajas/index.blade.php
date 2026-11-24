@@ -16,7 +16,10 @@ new #[Layout('layouts.app')] class extends Component
 
     // Modal Propuesta
     public bool $mostrarModalProponer = false;
+    public string $codigoBarras = '';
     public ?int $equipo_id = null;
+    public ?Equipo $equipoSeleccionado = null;
+    public ?string $errorEquipo = null;
     public string $tipo = 'baja';
     public string $motivo = '';
     public $adjuntos = [];
@@ -30,27 +33,69 @@ new #[Layout('layouts.app')] class extends Component
     public function mount(): void
     {
         Gate::authorize('viewAny', BajaReemplazo::class);
-        $primerEquipo = Equipo::whereNotIn('estado', ['dado_de_baja'])->first();
-        if ($primerEquipo) {
-            $this->equipo_id = $primerEquipo->id;
-        }
     }
 
     public function propuestas()
     {
-        return BajaReemplazo::with(['equipo.ubicacion', 'proponente', 'aprobador', 'documentos'])
-            ->latest()
-            ->get();
+        $query = BajaReemplazo::with(['equipo.ubicacion', 'proponente', 'aprobador', 'documentos'])
+            ->latest();
+
+        if (! Auth::user()->isAdmin()) {
+            $query->where('propuesta_por', Auth::id());
+        }
+
+        return $query->get();
     }
 
-    public function equiposCandidatos()
+    public function updatedCodigoBarras(): void
     {
-        return Equipo::whereNotIn('estado', ['dado_de_baja'])->orderBy('nombre')->get();
+        $this->buscarEquipo();
+    }
+
+    public function buscarEquipo(): void
+    {
+        $this->errorEquipo = null;
+        $this->equipoSeleccionado = null;
+        $this->equipo_id = null;
+
+        $codigo = trim($this->codigoBarras);
+        if ($codigo === '') {
+            return;
+        }
+
+        $equipo = Equipo::with('ubicacion')->where('codigo_barras', $codigo)->first();
+
+        if (! $equipo) {
+            $this->errorEquipo = "El código '{$codigo}' no está registrado en el inventario institucional.";
+            return;
+        }
+
+        if ($equipo->estado === 'dado_de_baja') {
+            $this->errorEquipo = "El equipo '{$equipo->nombre}' ({$codigo}) ya fue dado de baja formalmente.";
+            return;
+        }
+
+        if ($equipo->estado === 'pendiente_resolucion') {
+            $this->errorEquipo = "El equipo '{$equipo->nombre}' ({$codigo}) ya tiene una propuesta de baja pendiente de resolución.";
+            return;
+        }
+
+        if ($equipo->estado === 'prestado') {
+            $this->errorEquipo = "El equipo '{$equipo->nombre}' ({$codigo}) está actualmente prestado; debe registrarse su devolución antes de tramitar la baja.";
+            return;
+        }
+
+        $this->equipoSeleccionado = $equipo;
+        $this->equipo_id = $equipo->id;
     }
 
     public function abrirModalProponer(): void
     {
         $this->resetErrorBag();
+        $this->codigoBarras = '';
+        $this->equipo_id = null;
+        $this->equipoSeleccionado = null;
+        $this->errorEquipo = null;
         $this->tipo = 'baja';
         $this->motivo = '';
         $this->adjuntos = [];
@@ -61,12 +106,20 @@ new #[Layout('layouts.app')] class extends Component
     {
         Gate::authorize('create', BajaReemplazo::class);
 
+        $this->buscarEquipo();
+
+        if ($this->errorEquipo || ! $this->equipo_id) {
+            $this->addError('codigoBarras', $this->errorEquipo ?? 'Debe escanear o ingresar un código de equipo válido.');
+            return;
+        }
+
         $this->validate([
             'equipo_id' => 'required|exists:equipos,id',
             'tipo' => 'required|in:baja,reemplazo',
             'motivo' => 'required|string|min:15',
             'adjuntos.*' => 'nullable|file|mimes:pdf,jpg,jpeg,png|max:10240',
         ], [
+            'equipo_id.required' => 'Debe seleccionar o escanear un equipo válido.',
             'motivo.required' => 'Debe ingresar el sustento técnico y económico que justifique reparación vs reposición.',
             'motivo.min' => 'El sustento debe tener al menos 15 caracteres explicativos.',
             'adjuntos.*.mimes' => 'Los documentos de respaldo deben estar en formato PDF, JPG o PNG.',
@@ -231,13 +284,49 @@ new #[Layout('layouts.app')] class extends Component
 
                 <div class="space-y-4">
                     <div>
-                        <label class="block text-xs font-semibold text-gray-700 uppercase mb-1">Equipo Evaluado</label>
-                        <select wire:model="equipo_id" class="w-full text-sm rounded-md border-gray-300">
-                            @foreach($this->equiposCandidatos() as $e)
-                                <option value="{{ $e->id }}">{{ $e->nombre }} ({{ $e->codigo_barras }})</option>
-                            @endforeach
-                        </select>
-                        @error('equipo_id') <span class="text-xs text-red-600 font-medium">{{ $message }}</span> @enderror
+                        <label class="block text-xs font-semibold text-gray-700 uppercase mb-1">Código del Equipo (Escanear o Escribir)</label>
+                        <div class="relative">
+                            <input
+                                wire:model.live.debounce.300ms="codigoBarras"
+                                wire:keydown.enter.prevent="buscarEquipo"
+                                type="text"
+                                placeholder="Escanee con lector o escriba el código (ej. EQ-CSC-2960-01)..."
+                                autofocus
+                                class="w-full text-sm rounded-md font-mono border-gray-300 focus:border-red-600 focus:ring-red-600 uppercase pr-10"
+                            >
+                            <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-gray-400">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m0 14v1m8-8h-1M5 12H4m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                                </svg>
+                            </div>
+                        </div>
+
+                        @if($errorEquipo)
+                            <div class="mt-2 p-2.5 bg-red-50 border border-red-200 rounded-md flex items-start gap-2 text-xs text-red-700">
+                                <svg class="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                                <span>{{ $errorEquipo }}</span>
+                            </div>
+                        @elseif($equipoSeleccionado)
+                            <div class="mt-2 p-3 bg-green-50 border border-green-200 rounded-md">
+                                <div class="flex items-center justify-between">
+                                    <span class="text-xs font-bold text-green-900">{{ $equipoSeleccionado->nombre }}</span>
+                                    <span class="px-2 py-0.5 text-[10px] font-semibold rounded uppercase bg-green-200 text-green-800">
+                                        {{ $equipoSeleccionado->estado }}
+                                    </span>
+                                </div>
+                                <div class="mt-1 text-xs text-green-800 space-y-0.5">
+                                    <div><span class="font-semibold">Código:</span> <span class="font-mono">{{ $equipoSeleccionado->codigo_barras }}</span> &bull; <span class="font-semibold">Marca/Modelo:</span> {{ $equipoSeleccionado->marca }} {{ $equipoSeleccionado->modelo }}</div>
+                                    @if($equipoSeleccionado->numero_serie)
+                                        <div><span class="font-semibold">N° Serie:</span> {{ $equipoSeleccionado->numero_serie }}</div>
+                                    @endif
+                                    @if($equipoSeleccionado->ubicacion)
+                                        <div><span class="font-semibold">Ubicación:</span> {{ $equipoSeleccionado->ubicacion->nombre }}</div>
+                                    @endif
+                                </div>
+                            </div>
+                        @endif
+                        @error('codigoBarras') <span class="text-xs text-red-600 font-medium block mt-1">{{ $message }}</span> @enderror
+                        @error('equipo_id') <span class="text-xs text-red-600 font-medium block mt-1">{{ $message }}</span> @enderror
                     </div>
 
                     <div>
@@ -262,7 +351,14 @@ new #[Layout('layouts.app')] class extends Component
 
                 <div class="flex justify-end gap-3 border-t pt-4">
                     <button wire:click="$set('mostrarModalProponer', false)" type="button" class="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-md">Cancelar</button>
-                    <button wire:click="guardarPropuesta" type="button" class="px-4 py-2 text-sm bg-red-700 hover:bg-red-800 text-white font-medium rounded-md">Enviar Propuesta a Dirección</button>
+                    <button
+                        wire:click="guardarPropuesta"
+                        type="button"
+                        @disabled(! $equipoSeleccionado || $errorEquipo)
+                        class="px-4 py-2 text-sm bg-red-700 hover:bg-red-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-md shadow-sm transition"
+                    >
+                        Enviar Propuesta a Dirección
+                    </button>
                 </div>
             </div>
         </div>

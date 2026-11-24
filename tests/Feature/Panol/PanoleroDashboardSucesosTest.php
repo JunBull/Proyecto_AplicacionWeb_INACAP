@@ -65,7 +65,7 @@ class PanoleroDashboardSucesosTest extends TestCase
         $response->assertSee('Inventario de Consumibles');
     }
 
-    public function test_dashboard_despliega_insumos_en_stock_critico_con_boton_cotizar(): void
+    public function test_dashboard_despliega_insumos_en_stock_critico_sin_boton_cotizar_para_panolero(): void
     {
         $this->actingAs($this->panolero);
 
@@ -85,8 +85,8 @@ class PanoleroDashboardSucesosTest extends TestCase
         $response->assertSee('Stock Crítico');
         $response->assertSee('Tester Cable Red RJ45');
         $response->assertSee('INS-CRIT-DASH');
-        $response->assertSee('Cotizar');
-        $response->assertSee(route('panol.cotizaciones', ['insumo_id' => $insumoCritico->id]));
+        $response->assertSee('Requiere Reposición');
+        $response->assertDontSee('Cotizar');
     }
 
     public function test_dashboard_despliega_prestamos_vencidos_con_boton_devolver(): void

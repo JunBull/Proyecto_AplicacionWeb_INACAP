@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Categoria;
 use App\Models\Documento;
 use App\Models\Equipo;
 use App\Models\Ubicacion;
@@ -62,6 +63,7 @@ class EquipoService
      *     numero_serie: string,
      *     criticidad?: 'alta'|'media'|'baja',
      *     ubicacion_id: int,
+     *     categoria_id?: int|null,
      *     compra_id?: int|null,
      *     fotografia?: string|UploadedFile|null,
      *     fecha_adquisicion?: string|null,
@@ -84,6 +86,20 @@ class EquipoService
                 $rutaFoto = trim($archivoFoto);
             }
 
+            $categoriaId = $datos['categoria_id'] ?? null;
+            if (! $categoriaId && Categoria::exists()) {
+                $categoriaId = Categoria::where('slug', 'computo-movil')->value('id') ?? Categoria::first()?->id;
+            }
+
+            $criticidad = $datos['criticidad'] ?? null;
+            if (! $criticidad) {
+                if ($categoriaId) {
+                    $criticidad = Categoria::find($categoriaId)?->criticidad_sugerida ?? 'media';
+                } else {
+                    $criticidad = 'media';
+                }
+            }
+
             $equipo = Equipo::create([
                 'codigo_barras' => trim($datos['codigo_barras']),
                 'nombre' => trim($datos['nombre']),
@@ -91,8 +107,9 @@ class EquipoService
                 'modelo' => trim($datos['modelo']),
                 'numero_serie' => trim($datos['numero_serie']),
                 'estado' => $datos['estado'] ?? 'disponible',
-                'criticidad' => $datos['criticidad'] ?? 'media',
+                'criticidad' => $criticidad,
                 'ubicacion_id' => $datos['ubicacion_id'],
+                'categoria_id' => $categoriaId,
                 'compra_id' => $datos['compra_id'] ?? null,
                 'fotografia' => $rutaFoto,
                 'fecha_adquisicion' => $datos['fecha_adquisicion'] ?? now()->toDateString(),
@@ -112,7 +129,7 @@ class EquipoService
                 'creado_en' => now(),
             ]);
 
-            return $equipo->fresh(['ubicacion', 'documentos']);
+            return $equipo->fresh(['ubicacion', 'categoria', 'documentos']);
         });
     }
 
@@ -132,6 +149,12 @@ class EquipoService
         if (isset($datos['ubicacion_id']) && ! Ubicacion::where('id', $datos['ubicacion_id'])->exists()) {
             throw ValidationException::withMessages([
                 'ubicacion_id' => 'La ubicación especificada no es válida.',
+            ]);
+        }
+
+        if (isset($datos['categoria_id']) && $datos['categoria_id'] !== null && ! Categoria::where('id', $datos['categoria_id'])->exists()) {
+            throw ValidationException::withMessages([
+                'categoria_id' => 'La categoría especificada no es válida.',
             ]);
         }
 
@@ -156,16 +179,16 @@ class EquipoService
 
             $equipo->update($datos);
 
-            return $equipo->fresh(['ubicacion', 'documentos']);
+            return $equipo->fresh(['ubicacion', 'categoria', 'documentos']);
         });
     }
 
     /**
      * Búsqueda de equipos mediante nombre estandarizado, código de barras o número de serie (CP-04).
      */
-    public function buscar(string $termino, ?int $carreraId = null): Collection
+    public function buscar(string $termino, ?int $carreraId = null, ?int $categoriaId = null): Collection
     {
-        $query = Equipo::with(['ubicacion.carrera', 'documentos']);
+        $query = Equipo::with(['ubicacion.carrera', 'categoria', 'documentos']);
 
         if (trim($termino) !== '') {
             $t = '%'.trim($termino).'%';
@@ -174,7 +197,10 @@ class EquipoService
                     ->orWhere('codigo_barras', 'LIKE', $t)
                     ->orWhere('marca', 'LIKE', $t)
                     ->orWhere('modelo', 'LIKE', $t)
-                    ->orWhere('numero_serie', 'LIKE', $t);
+                    ->orWhere('numero_serie', 'LIKE', $t)
+                    ->orWhereHas('categoria', function ($cq) use ($t) {
+                        $cq->where('nombre', 'LIKE', $t);
+                    });
             });
         }
 
@@ -182,6 +208,10 @@ class EquipoService
             $query->whereHas('ubicacion', function ($q) use ($carreraId) {
                 $q->where('carrera_id', $carreraId);
             });
+        }
+
+        if ($categoriaId) {
+            $query->where('categoria_id', $categoriaId);
         }
 
         return $query->get();
@@ -224,6 +254,10 @@ class EquipoService
 
         if (empty($datos['ubicacion_id']) || ! Ubicacion::where('id', $datos['ubicacion_id'])->exists()) {
             $errores['ubicacion_id'] = 'La ubicación o laboratorio asignado es obligatorio y debe existir.';
+        }
+
+        if (isset($datos['categoria_id']) && $datos['categoria_id'] !== null && ! Categoria::where('id', $datos['categoria_id'])->exists()) {
+            $errores['categoria_id'] = 'La categoría seleccionada no es válida.';
         }
 
         if (isset($datos['fotografia']) && $datos['fotografia'] instanceof UploadedFile) {

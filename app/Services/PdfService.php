@@ -20,10 +20,16 @@ class PdfService
         $ubicacionNombre = $falla->espacio_destino
             ?: ($falla->ubicacion ? $falla->ubicacion->nombre : 'Ubicación no especificada');
 
-        $tipoItem = $falla->equipo_id ? 'EQUIPO' : 'INSUMO / MATERIAL';
-        $itemNombre = $falla->equipo_id
-            ? ($falla->equipo->nombre.' (Serie: '.$falla->equipo->numero_serie.' / CB: '.$falla->equipo->codigo_barras.')')
-            : ($falla->insumo->nombre.' (CB: '.$falla->insumo->codigo_barras.')');
+        if ($falla->equipo_id && $falla->equipo) {
+            $tipoItem = 'EQUIPO / MAQUINARIA';
+            $itemNombre = $falla->equipo->nombre.' (Serie: '.$falla->equipo->numero_serie.' / CB: '.$falla->equipo->codigo_barras.')';
+        } elseif ($falla->insumo_id && $falla->insumo) {
+            $tipoItem = 'INSUMO / MATERIAL';
+            $itemNombre = $falla->insumo->nombre.' (CB: '.$falla->insumo->codigo_barras.')';
+        } else {
+            $tipoItem = 'INFRAESTRUCTURA / OTRO';
+            $itemNombre = 'Incidencia general de espacio o instalaciones';
+        }
 
         $descripcionLimpia = str_replace(["\r\n", "\r", "\n"], ' ', $falla->descripcion);
         $descripcionCorta = substr($descripcionLimpia, 0, 300);

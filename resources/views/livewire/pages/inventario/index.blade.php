@@ -192,7 +192,7 @@ new #[Layout('layouts.app')] class extends Component
             </div>
         @endif
 
-        <!-- Monitor reactivo y Dashboard de Stock Crítico con Acción Cotizar (KPI-04, CP-24, Sección 3.3.2) -->
+        {{-- Monitor reactivo y Dashboard de Stock Crítico con Acción Cotizar (KPI-04, CP-24, Sección 3.3.2) --}}
         @php
             $criticos = $this->insumosCriticos();
             $criticosCount = $criticos->count();
@@ -216,7 +216,7 @@ new #[Layout('layouts.app')] class extends Component
                     </button>
                 </div>
 
-                <!-- Tarjetas de Ítems Críticos con Botón "Cotizar" Directo -->
+                {{-- Tarjetas de Ítems Críticos con Botón "Cotizar" Directo para Administrador --}}
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                     @foreach($criticos as $critico)
                         @php
@@ -247,14 +247,20 @@ new #[Layout('layouts.app')] class extends Component
                                 <span class="text-[11px] text-slate-500">
                                     Sugerido: <strong>{{ $sugerido }} {{ $critico->unidad }}</strong>
                                 </span>
-                                <a
-                                    href="{{ route('panol.cotizaciones', ['insumo_id' => $critico->id]) }}"
-                                    class="inline-flex items-center gap-1 px-3 py-1.5 bg-red-700 hover:bg-red-800 text-white rounded-md text-xs font-bold shadow-2xs transition"
-                                    wire:navigate
-                                >
-                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
-                                    Cotizar
-                                </a>
+                                @if(auth()->user()->rol === 'administrador')
+                                    <a
+                                        href="{{ route('admin.cotizaciones', ['insumo_id' => $critico->id]) }}"
+                                        class="inline-flex items-center gap-1 px-3 py-1.5 bg-red-700 hover:bg-red-800 text-white rounded-md text-xs font-bold shadow-2xs transition"
+                                        wire:navigate
+                                    >
+                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                                        Cotizar
+                                    </a>
+                                @else
+                                    <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
+                                        Requiere Reposición
+                                    </span>
+                                @endif
                             </div>
                         </div>
                     @endforeach

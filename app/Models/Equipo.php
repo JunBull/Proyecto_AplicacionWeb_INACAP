@@ -25,6 +25,7 @@ class Equipo extends Model
         'requiere_calibracion',
         'reservado_clases',
         'ubicacion_id',
+        'categoria_id',
         'compra_id',
         'fotografia',
         'fecha_adquisicion',
@@ -42,6 +43,11 @@ class Equipo extends Model
     public function ubicacion(): BelongsTo
     {
         return $this->belongsTo(Ubicacion::class, 'ubicacion_id');
+    }
+
+    public function categoria(): BelongsTo
+    {
+        return $this->belongsTo(Categoria::class, 'categoria_id');
     }
 
     public function compra(): BelongsTo

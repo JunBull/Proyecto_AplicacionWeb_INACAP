@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Proveedor extends Model
@@ -46,6 +47,25 @@ class Proveedor extends Model
     public function mantenimientos(): HasMany
     {
         return $this->hasMany(Mantenimiento::class, 'proveedor_id');
+    }
+
+    public function carreras(): BelongsToMany
+    {
+        return $this->belongsToMany(Carrera::class, 'carrera_proveedor', 'proveedor_id', 'carrera_id')
+            ->withTimestamps();
+    }
+
+    public function scopeParaCarrera($query, ?int $carreraId)
+    {
+        if (! $carreraId) {
+            return $query->where('activo', true);
+        }
+
+        return $query->where('activo', true)
+            ->where(function ($q) use ($carreraId) {
+                $q->whereHas('carreras', fn ($qc) => $qc->where('carreras.id', $carreraId))
+                    ->orDoesntHave('carreras');
+            });
     }
 
     public function scopeParaMantenimiento($query)

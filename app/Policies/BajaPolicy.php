@@ -20,7 +20,15 @@ class BajaPolicy
      */
     public function view(User $user, BajaReemplazo $baja): bool
     {
-        return $user->activo && ($user->isAdmin() || $user->isPanolero());
+        if (! $user->activo) {
+            return false;
+        }
+
+        if ($user->isAdmin()) {
+            return true;
+        }
+
+        return $user->isPanolero() && $baja->propuesta_por === $user->id;
     }
 
     /**

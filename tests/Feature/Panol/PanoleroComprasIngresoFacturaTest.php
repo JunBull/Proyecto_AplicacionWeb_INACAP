@@ -20,6 +20,8 @@ class PanoleroComprasIngresoFacturaTest extends TestCase
 
     private User $panolero;
 
+    private User $admin;
+
     private Carrera $carrera;
 
     private Ubicacion $ubicacion;
@@ -34,6 +36,11 @@ class PanoleroComprasIngresoFacturaTest extends TestCase
 
         $this->panolero = User::factory()->create([
             'rol' => 'encargado_panol',
+            'activo' => true,
+        ]);
+
+        $this->admin = User::factory()->create([
+            'rol' => 'administrador',
             'activo' => true,
         ]);
 
@@ -73,7 +80,7 @@ class PanoleroComprasIngresoFacturaTest extends TestCase
 
     public function test_vista_muestra_textos_simplificados_sin_jargon_academico(): void
     {
-        $this->actingAs($this->panolero);
+        $this->actingAs($this->admin);
 
         Volt::test('pages.compras.index')
             ->assertSee('Ingreso por Factura')
@@ -93,7 +100,7 @@ class PanoleroComprasIngresoFacturaTest extends TestCase
 
     public function test_paso_dos_muestra_llenado_manual_y_etiquetas_simplificadas(): void
     {
-        $this->actingAs($this->panolero);
+        $this->actingAs($this->admin);
 
         Volt::test('pages.compras.index')
             ->call('abrirModalIngreso')
@@ -114,7 +121,7 @@ class PanoleroComprasIngresoFacturaTest extends TestCase
 
     public function test_confirmar_valida_campos_requeridos_en_paso_dos(): void
     {
-        $this->actingAs($this->panolero);
+        $this->actingAs($this->admin);
 
         Volt::test('pages.compras.index')
             ->call('abrirModalIngreso')
@@ -131,7 +138,7 @@ class PanoleroComprasIngresoFacturaTest extends TestCase
 
     public function test_boton_confirmar_persiste_compra_actualiza_stock_y_descuenta_presupuesto(): void
     {
-        $this->actingAs($this->panolero);
+        $this->actingAs($this->admin);
 
         Volt::test('pages.compras.index')
             ->call('abrirModalIngreso')
@@ -198,9 +205,9 @@ class PanoleroComprasIngresoFacturaTest extends TestCase
 
     public function test_menu_navegacion_muestra_ingreso_por_factura(): void
     {
-        $this->actingAs($this->panolero);
+        $this->actingAs($this->admin);
 
-        $response = $this->get(route('panol.compras'));
+        $response = $this->get(route('admin.compras'));
         $response->assertStatus(200);
         $response->assertSee('Ingreso por Factura');
         $response->assertDontSee('Compras y OCR Documental');
@@ -208,7 +215,7 @@ class PanoleroComprasIngresoFacturaTest extends TestCase
 
     public function test_ingreso_manual_permite_ver_items_ingresados_en_tabla_y_modal(): void
     {
-        $this->actingAs($this->panolero);
+        $this->actingAs($this->admin);
 
         $compraManual = Compra::create([
             'proveedor_id' => $this->proveedor->id,
@@ -245,5 +252,13 @@ class PanoleroComprasIngresoFacturaTest extends TestCase
             ->assertSee('$25.000')
             ->call('cerrarModalDetalle')
             ->assertSet('mostrarModalDetalle', false);
+    }
+
+    public function test_panolero_no_puede_acceder_a_ingreso_por_factura(): void
+    {
+        $this->actingAs($this->panolero);
+
+        $response = $this->get(route('admin.compras'));
+        $response->assertStatus(403);
     }
 }

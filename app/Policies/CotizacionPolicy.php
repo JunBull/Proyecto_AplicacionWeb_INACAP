@@ -8,35 +8,35 @@ use App\Models\User;
 class CotizacionPolicy
 {
     /**
-     * Pañolero y Administrador pueden ver cotizaciones.
+     * Solo Administrador puede ver cotizaciones.
      */
     public function viewAny(User $user): bool
     {
-        return $user->activo && ($user->isAdmin() || $user->isPanolero());
+        return $user->activo && $user->isAdmin();
     }
 
     /**
-     * Ver cotización específica.
+     * Ver cotización específica (solo Administrador).
      */
     public function view(User $user, Cotizacion $cotizacion): bool
     {
-        return $user->activo && ($user->isAdmin() || $user->isPanolero());
+        return $user->activo && $user->isAdmin();
     }
 
     /**
-     * Registrar propuestas de cotización de proveedores.
+     * Registrar propuestas de cotización de proveedores (solo Administrador).
      */
     public function create(User $user): bool
     {
-        return $user->activo && ($user->isAdmin() || $user->isPanolero());
+        return $user->activo && $user->isAdmin();
     }
 
     /**
-     * Actualizar datos de cotización.
+     * Actualizar datos de cotización (solo Administrador).
      */
     public function update(User $user, Cotizacion $cotizacion): bool
     {
-        return $user->activo && ($user->isAdmin() || $user->isPanolero());
+        return $user->activo && $user->isAdmin();
     }
 
     /**

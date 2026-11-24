@@ -40,9 +40,25 @@ class MantenimientoService
         CarbonInterface|string $fechaProgramada,
         ?int $proveedorId = null,
         ?string $observaciones = null,
-        ?string $subtipo = null
+        ?string $subtipo = null,
+        ?int $fallaId = null
     ): Mantenimiento {
         $fecha = is_string($fechaProgramada) ? Carbon::parse($fechaProgramada) : $fechaProgramada;
+
+        if ($fallaId) {
+            $falla = Falla::find($fallaId);
+            if (! $falla || $falla->equipo_id !== $equipo->id) {
+                throw ValidationException::withMessages([
+                    'falla_id' => 'La incidencia técnica seleccionada no corresponde al activo seleccionado.',
+                ]);
+            }
+
+            if ($tipo !== 'correctivo') {
+                throw ValidationException::withMessages([
+                    'tipo' => 'Los equipos con incidencias técnicas reportadas deben programarse como mantenimiento correctivo.',
+                ]);
+            }
+        }
 
         if ($tipo === 'preventivo' && ! in_array($frecuencia, ['semestral', 'anual'], true)) {
             throw ValidationException::withMessages([
@@ -60,17 +76,20 @@ class MantenimientoService
             ? $subtipo
             : ($tipo === 'correctivo' ? 'MC-PLAN' : 'REV-A');
 
-        return Mantenimiento::create([
-            'equipo_id' => $equipo->id,
-            'proveedor_id' => $proveedorId,
-            'tipo' => $tipo,
-            'subtipo' => $subtipoValido,
-            'frecuencia' => $frecuencia ?? 'no_aplica',
-            'fecha_programada' => $fecha->toDateString(),
-            'fecha_realizada' => null,
-            'estado' => 'programado',
-            'observaciones' => $observaciones ? trim($observaciones) : null,
-        ]);
+        return DB::transaction(function () use ($equipo, $fallaId, $proveedorId, $tipo, $subtipoValido, $frecuencia, $fecha, $observaciones) {
+            return Mantenimiento::create([
+                'equipo_id' => $equipo->id,
+                'falla_id' => $fallaId,
+                'proveedor_id' => $proveedorId,
+                'tipo' => $tipo,
+                'subtipo' => $subtipoValido,
+                'frecuencia' => $frecuencia ?? 'no_aplica',
+                'fecha_programada' => $fecha->toDateString(),
+                'fecha_realizada' => null,
+                'estado' => 'programado',
+                'observaciones' => $observaciones ? trim($observaciones) : null,
+            ]);
+        });
     }
 
     /**
@@ -97,7 +116,13 @@ class MantenimientoService
                 ]);
             }
 
-            return $mantenimiento->fresh(['equipo', 'proveedor']);
+            if ($mantenimiento->falla_id && $mantenimiento->falla) {
+                $mantenimiento->falla->update([
+                    'estado' => 'en_reparacion',
+                ]);
+            }
+
+            return $mantenimiento->fresh(['equipo', 'proveedor', 'falla']);
         });
     }
 
@@ -152,8 +177,21 @@ class MantenimientoService
             $equipo = $mantenimiento->equipo;
             if ($equipo && $equipo->estado !== 'dado_de_baja') {
                 if ($veredicto === 'conforme') {
+                    // Si el mantenimiento tiene una falla vinculada, cerrarla como 'resuelta'
+                    if ($mantenimiento->falla_id && $mantenimiento->falla) {
+                        $mantenimiento->falla->update([
+                            'estado' => 'resuelta',
+                            'atendida_por' => $subidorId,
+                            'descripcion' => $mantenimiento->falla->descripcion."\n\n[Resolución por Mantenimiento ".now()->toDateTimeString()."]: Intervención correctiva #MANT-{$mantenimiento->id} finalizada con veredicto operativo conforme.",
+                        ]);
+                    }
+
                     // Declarar equipo operativo y disponible si no tiene otras fallas activas
-                    $tieneOtrasFallas = $equipo->fallas()->whereIn('estado', ['reportada', 'en_revision', 'en_reparacion'])->exists();
+                    $tieneOtrasFallas = $equipo->fallas()
+                        ->where('id', '!=', $mantenimiento->falla_id ?? 0)
+                        ->whereIn('estado', ['reportada', 'en_revision', 'en_reparacion'])
+                        ->exists();
+
                     if (! $tieneOtrasFallas) {
                         $equipo->update(['estado' => 'disponible']);
                     }
@@ -195,7 +233,7 @@ class MantenimientoService
 
                     $propuesta = BajaReemplazo::create([
                         'equipo_id' => $equipo->id,
-                        'falla_id' => null,
+                        'falla_id' => $mantenimiento->falla_id,
                         'tipo' => $tipoBaja,
                         'motivo' => $motivoBaja,
                         'estado' => 'propuesta',
@@ -203,6 +241,13 @@ class MantenimientoService
                         'aprobada_por' => null,
                         'fecha' => now()->toDateString(),
                     ]);
+
+                    if ($mantenimiento->falla_id && $mantenimiento->falla) {
+                        $mantenimiento->falla->update([
+                            'estado' => 'derivada_a_baja',
+                            'atendida_por' => $subidorId,
+                        ]);
+                    }
 
                     // Si se cargó informe técnico, también se vincula polimórficamente a la baja
                     if ($informe instanceof UploadedFile && $rutaInforme) {

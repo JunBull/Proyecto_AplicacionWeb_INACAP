@@ -34,6 +34,8 @@
                             Equipo: {{ $falla->equipo->nombre }} (Serie: {{ $falla->equipo->numero_serie }})
                         @elseif($falla->insumo)
                             Insumo: {{ $falla->insumo->nombre }} (Código: {{ $falla->insumo->codigo_barras }})
+                        @else
+                            Otro / Infraestructura e Instalaciones
                         @endif
                     </td>
                 </tr>

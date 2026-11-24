@@ -515,4 +515,68 @@ class PanoleroMantenimientosFlujoTest extends TestCase
             'estado' => 'programado',
         ]);
     }
+
+    public function test_pestana_fallas_muestra_puntito_rojo_cuando_hay_nuevo_equipo_reportado_y_desaparece_al_abrir(): void
+    {
+        $this->actingAs($this->panolero);
+
+        // Sin fallas: no debe mostrar el puntito rojo
+        Volt::test('pages.mantenimientos.index')
+            ->assertSet('pestanaActiva', 'preventivo')
+            ->assertDontSee('data-testid="indicador-nuevas-fallas"', false);
+
+        // Se reporta un equipo con fallas
+        $falla1 = Falla::create([
+            'equipo_id' => $this->equipo->id,
+            'reportada_por' => $this->panolero->id,
+            'descripcion' => 'Pantalla con líneas verticales y teclado con teclas trabadas.',
+            'fecha_reporte' => now(),
+            'estado' => 'reportada',
+        ]);
+
+        // Al estar en Mantenimiento Preventivo, debe aparecer el puntito rojo indicador
+        $component = Volt::test('pages.mantenimientos.index')
+            ->assertSet('pestanaActiva', 'preventivo')
+            ->assertSee('data-testid="indicador-nuevas-fallas"', false);
+
+        // Al abrir la pestaña 'fallas', desaparece el puntito rojo
+        $component->call('cambiarPestana', 'fallas')
+            ->assertSet('pestanaActiva', 'fallas')
+            ->assertDontSee('data-testid="indicador-nuevas-fallas"', false);
+
+        // Al volver a la pestaña 'preventivo', sigue oculto porque ya fue revisado
+        $component->call('cambiarPestana', 'preventivo')
+            ->assertSet('pestanaActiva', 'preventivo')
+            ->assertDontSee('data-testid="indicador-nuevas-fallas"', false);
+
+        // Si se reporta un nuevo equipo con fallas, el puntito rojo vuelve a aparecer
+        $otroEquipo = Equipo::create([
+            'nombre' => 'Osciloscopio Digital Rigol DS1054Z',
+            'marca' => 'Rigol',
+            'modelo' => 'DS1054Z',
+            'numero_serie' => 'SN-RIG-001',
+            'codigo_barras' => 'EQ-RIG-001',
+            'ubicacion_id' => $this->ubicacion->id,
+            'estado' => 'disponible',
+            'criticidad' => 'media',
+        ]);
+
+        Falla::create([
+            'equipo_id' => $otroEquipo->id,
+            'reportada_por' => $this->panolero->id,
+            'descripcion' => 'Canal 1 no detecta señal de entrada.',
+            'fecha_reporte' => now(),
+            'estado' => 'reportada',
+        ]);
+
+        // Ahora debe volver a mostrarse el puntito rojo
+        $component->call('$refresh')
+            ->assertSet('pestanaActiva', 'preventivo')
+            ->assertSee('data-testid="indicador-nuevas-fallas"', false);
+
+        // Y al abrir nuevamente la pestaña 'fallas', vuelve a desaparecer
+        $component->call('cambiarPestana', 'fallas')
+            ->assertSet('pestanaActiva', 'fallas')
+            ->assertDontSee('data-testid="indicador-nuevas-fallas"', false);
+    }
 }

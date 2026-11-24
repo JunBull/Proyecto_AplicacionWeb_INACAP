@@ -19,6 +19,8 @@ class PanoleroAdquisicionesSimplificadoTest extends TestCase
 
     private Proveedor $proveedor;
 
+    private User $admin;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -27,6 +29,13 @@ class PanoleroAdquisicionesSimplificadoTest extends TestCase
             'name' => 'Pañolero Adquisiciones Test',
             'email' => 'panolero.adq@inacap.cl',
             'rol' => 'encargado_panol',
+            'activo' => true,
+        ]);
+
+        $this->admin = User::factory()->create([
+            'name' => 'Admin Adquisiciones Test',
+            'email' => 'admin.adq@inacap.cl',
+            'rol' => 'administrador',
             'activo' => true,
         ]);
 
@@ -45,22 +54,22 @@ class PanoleroAdquisicionesSimplificadoTest extends TestCase
         ]);
     }
 
-    public function test_vista_proveedores_muestra_titulos_limpios_sin_codigos_auditoria(): void
+    public function test_vista_proveedores_muestra_titulos_limpios_al_administrador(): void
     {
-        $this->actingAs($this->panolero);
+        $this->actingAs($this->admin);
 
         $component = Volt::test('pages.proveedores.index');
 
         $component->assertSee('Proveedores');
-        $component->assertSee('Contactos comerciales y rubros de proveedores registrados.');
+        $component->assertSee('Contactos comerciales, rubros y especialidad por carrera académica.');
 
         $component->assertDontSee('Directorio de Proveedores Categorizados');
         $component->assertDontSee('(CP-16)');
     }
 
-    public function test_vista_cotizaciones_muestra_titulos_limpios_sin_codigos_auditoria(): void
+    public function test_vista_cotizaciones_muestra_titulos_limpios_al_administrador(): void
     {
-        $this->actingAs($this->panolero);
+        $this->actingAs($this->admin);
 
         $component = Volt::test('pages.cotizaciones.index');
 
@@ -70,5 +79,14 @@ class PanoleroAdquisicionesSimplificadoTest extends TestCase
         $component->assertDontSee('Proceso 1: Cotizaciones y Adjudicaciones');
         $component->assertDontSee('(CP-17, CP-18, KPI-08, SLA-05)');
         $component->assertDontSee('(SLA-05 / KPI-10)');
+    }
+
+    public function test_panolero_no_tiene_acceso_a_rutas_de_adquisiciones(): void
+    {
+        $this->actingAs($this->panolero);
+
+        $this->get(route('admin.proveedores'))->assertStatus(403);
+        $this->get(route('admin.cotizaciones'))->assertStatus(403);
+        $this->get(route('admin.compras'))->assertStatus(403);
     }
 }

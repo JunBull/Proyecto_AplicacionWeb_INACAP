@@ -60,6 +60,7 @@ class Mantenimiento extends Model
 
     protected $fillable = [
         'equipo_id',
+        'falla_id',
         'proveedor_id',
         'tipo',
         'subtipo',
@@ -81,6 +82,11 @@ class Mantenimiento extends Model
     public function equipo(): BelongsTo
     {
         return $this->belongsTo(Equipo::class, 'equipo_id');
+    }
+
+    public function falla(): BelongsTo
+    {
+        return $this->belongsTo(Falla::class, 'falla_id');
     }
 
     public function proveedor(): BelongsTo

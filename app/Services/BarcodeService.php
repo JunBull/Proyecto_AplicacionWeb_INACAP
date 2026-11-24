@@ -119,21 +119,27 @@ SVG;
     /**
      * Genera una etiqueta completa lista para imprimir con el formato institucional descriptivo.
      *
-     * @param  array{codigo: string, nombre: string, institucion?: string, subtitulo?: string|null, ubicacion?: string|null}  $datos
+     * @param  array{codigo: string, nombre: string, institucion?: string, carrera?: string|null, subtitulo?: string|null, ubicacion?: string|null}  $datos
      */
     public function generarEtiquetaHtml(array $datos): string
     {
         $codigo = htmlspecialchars($datos['codigo'], ENT_QUOTES, 'UTF-8');
         $nombre = htmlspecialchars($datos['nombre'], ENT_QUOTES, 'UTF-8');
         $institucion = htmlspecialchars($datos['institucion'] ?? 'INACAP · SEDE TEMUCO', ENT_QUOTES, 'UTF-8');
+        $carrera = isset($datos['carrera']) && trim($datos['carrera']) !== ''
+            ? htmlspecialchars($datos['carrera'], ENT_QUOTES, 'UTF-8')
+            : null;
         $ubicacion = htmlspecialchars($datos['ubicacion'] ?? 'Pañol Área Informática', ENT_QUOTES, 'UTF-8');
         $svg = $this->generarSvg($datos['codigo'], 50, 2);
+
+        $carreraHtml = $carrera ? "<div style=\"font-size:10px;font-weight:600;color:#475569;margin-bottom:4px;\">{$carrera}</div>" : '';
 
         return <<<HTML
 <div class="etiqueta-institucional" style="display:inline-block;border:2px solid #b91c1c;padding:12px 16px;border-radius:6px;background:#ffffff;font-family:Arial,sans-serif;max-width:320px;text-align:center;box-sizing:border-box;margin:6px;">
     <div style="font-size:11px;font-weight:bold;color:#b91c1c;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;">
         {$institucion}
     </div>
+    {$carreraHtml}
     <div style="font-size:12px;font-weight:bold;color:#1e293b;line-height:1.2;margin-bottom:6px;min-height:28px;">
         {$nombre}
     </div>
@@ -153,19 +159,23 @@ HTML;
     /**
      * Genera un lote de hasta 20 etiquetas optimizado para impresión (cumpliendo SLA-07: <= 10 seg).
      *
-     * @param  array<int, array{codigo: string, nombre: string, institucion?: string, ubicacion?: string|null}>  $items
+     * @param  array<int, array{codigo: string, nombre: string, institucion?: string, carrera?: string|null, ubicacion?: string|null}>  $items
      * @return array{tiempo_ms: float, total: int, html: string}
      */
     public function generarLoteEtiquetas(array $items): array
     {
-        if (count($items) > 20) {
+        $itemsValidos = array_values(array_filter($items, function ($item) {
+            return ! empty($item['codigo']) && trim((string) $item['codigo']) !== '';
+        }));
+
+        if (count($itemsValidos) > 20) {
             throw new InvalidArgumentException('El tamaño máximo de lote institucional es de 20 etiquetas por tirada (SLA-07).');
         }
 
         $inicio = microtime(true);
         $htmlLote = '<div class="contenedor-lote-etiquetas" style="display:flex;flex-wrap:wrap;gap:8px;padding:16px;">';
 
-        foreach ($items as $item) {
+        foreach ($itemsValidos as $item) {
             $htmlLote .= $this->generarEtiquetaHtml($item);
         }
 
@@ -175,7 +185,7 @@ HTML;
 
         return [
             'tiempo_ms' => round($tiempoMs, 2),
-            'total' => count($items),
+            'total' => count($itemsValidos),
             'html' => $htmlLote,
         ];
     }
@@ -193,12 +203,12 @@ HTML;
             return null;
         }
 
-        $equipo = Equipo::with('ubicacion')->where('codigo_barras', $codigoLimpio)->first();
+        $equipo = Equipo::with(['ubicacion.carrera', 'categoria'])->where('codigo_barras', $codigoLimpio)->first();
         if ($equipo) {
             return ['tipo' => 'equipo', 'item' => $equipo];
         }
 
-        $insumo = Insumo::with('ubicacion')->where('codigo_barras', $codigoLimpio)->first();
+        $insumo = Insumo::with('ubicacion.carrera')->where('codigo_barras', $codigoLimpio)->first();
         if ($insumo) {
             return ['tipo' => 'insumo', 'item' => $insumo];
         }

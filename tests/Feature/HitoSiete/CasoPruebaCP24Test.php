@@ -72,6 +72,7 @@ class CasoPruebaCP24Test extends TestCase
 
     /**
      * CP-24: El dashboard de inventario lista únicamente los insumos con stock crítico (KPI-04).
+     * El pañolero ve el aviso pero no tiene botón de cotizar.
      */
     public function test_dashboard_inventario_despliega_productos_criticos(): void
     {
@@ -82,18 +83,41 @@ class CasoPruebaCP24Test extends TestCase
             ->assertSee('Alertas de Stock Crítico (KPI-04 / CP-24)')
             ->assertSee($this->insumoCritico->nombre)
             ->assertSee($this->insumoCritico->codigo_barras)
+            ->assertSee('Requiere Reposición')
+            ->assertDontSee('Cotizar');
+    }
+
+    /**
+     * CP-24: El administrador sí visualiza el botón "Cotizar" en el dashboard de inventario.
+     */
+    public function test_administrador_ve_boton_cotizar_en_dashboard_inventario(): void
+    {
+        $admin = User::factory()->create([
+            'rol' => 'administrador',
+            'activo' => true,
+        ]);
+
+        $this->actingAs($admin);
+
+        Volt::test('pages.inventario.index')
+            ->assertSee('Alertas de Stock Crítico (KPI-04 / CP-24)')
             ->assertSee('Cotizar');
     }
 
     /**
-     * CP-24: El botón "Cotizar" precarga automáticamente el insumo y su carrera en la solicitud de cotización.
+     * CP-24: El botón "Cotizar" precarga automáticamente el insumo y su carrera en la solicitud de cotización del administrador.
      */
     public function test_boton_cotizar_precarga_insumo_en_solicitudes_cotizacion(): void
     {
-        $this->actingAs($this->panolero);
+        $admin = User::factory()->create([
+            'rol' => 'administrador',
+            'activo' => true,
+        ]);
 
-        // Simular que el usuario llega a cotizaciones desde el botón "Cotizar" del dashboard
-        $this->get(route('panol.cotizaciones', ['insumo_id' => $this->insumoCritico->id]))
+        $this->actingAs($admin);
+
+        // Simular que el administrador llega a cotizaciones desde el botón "Cotizar" del dashboard
+        $this->get(route('admin.cotizaciones', ['insumo_id' => $this->insumoCritico->id]))
             ->assertOk();
 
         // Verificar reactividad en el componente Volt de cotizaciones
@@ -103,5 +127,16 @@ class CasoPruebaCP24Test extends TestCase
         $this->assertEquals($this->carrera->id, $component->get('carrera_id'));
         $this->assertStringContainsString($this->insumoCritico->nombre, $component->get('descripcion'));
         $this->assertStringContainsString($this->insumoCritico->codigo_barras, $component->get('descripcion'));
+    }
+
+    /**
+     * El pañolero no tiene permisos para acceder a cotizaciones en el servidor.
+     */
+    public function test_panolero_no_puede_acceder_a_cotizaciones(): void
+    {
+        $this->actingAs($this->panolero);
+
+        $this->get(route('admin.cotizaciones'))
+            ->assertStatus(403);
     }
 }

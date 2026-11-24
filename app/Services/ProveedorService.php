@@ -32,7 +32,7 @@ class ProveedorService
 
         $this->validarDatosProveedor($datosNormalizados);
 
-        return Proveedor::create([
+        $proveedor = Proveedor::create([
             'razon_social' => trim($datosNormalizados['razon_social']),
             'rut' => trim($datosNormalizados['rut']),
             'correo' => strtolower(trim($datosNormalizados['correo'])),
@@ -40,6 +40,12 @@ class ProveedorService
             'tipo' => $datosNormalizados['tipo'],
             'activo' => (bool) ($datosNormalizados['activo'] ?? true),
         ]);
+
+        if (isset($datos['carreras_ids']) && is_array($datos['carreras_ids'])) {
+            $proveedor->carreras()->sync($datos['carreras_ids']);
+        }
+
+        return $proveedor;
     }
 
     /**
@@ -67,6 +73,10 @@ class ProveedorService
             'tipo' => $datosNormalizados['tipo'] ?? $proveedor->tipo,
             'activo' => isset($datosNormalizados['activo']) ? (bool) $datosNormalizados['activo'] : $proveedor->activo,
         ]);
+
+        if (array_key_exists('carreras_ids', $datos) && is_array($datos['carreras_ids'])) {
+            $proveedor->carreras()->sync($datos['carreras_ids']);
+        }
 
         return $proveedor->fresh();
     }

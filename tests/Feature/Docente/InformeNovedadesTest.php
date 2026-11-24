@@ -4,6 +4,7 @@ namespace Tests\Feature\Docente;
 
 use App\Models\Carrera;
 use App\Models\Equipo;
+use App\Models\Falla;
 use App\Models\Ubicacion;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -83,7 +84,7 @@ class InformeNovedadesTest extends TestCase
         Volt::test('pages.docente.novedades')
             ->call('abrirModalReporte')
             ->set('tipoItem', 'equipo')
-            ->set('equipoId', $this->equipo->id)
+            ->set('codigoBarrasEquipo', $this->equipo->codigo_barras)
             ->set('ubicacionId', $this->laboratorio->id)
             ->set('descripcion', 'El equipo no enciende y presenta olor a quemado en el transformador.')
             ->set('severidad', 'alta')
@@ -113,7 +114,7 @@ class InformeNovedadesTest extends TestCase
         Volt::test('pages.docente.novedades')
             ->call('abrirModalReporte')
             ->set('tipoItem', 'equipo')
-            ->set('equipoId', $this->equipo->id)
+            ->set('codigoBarrasEquipo', $this->equipo->codigo_barras)
             ->call('seleccionarTipoDestino', 'sala')
             ->set('edificio_destino', 'Edificio C')
             ->set('sala_destino', 'C101')
@@ -131,5 +132,91 @@ class InformeNovedadesTest extends TestCase
             'espacio_destino' => 'Edificio C - C101',
             'descripcion' => 'Proyector con parpadeo y falla intermitente en la sala de clases.',
         ]);
+    }
+
+    public function test_docente_reporta_novedad_escaneando_codigo_valido_de_equipo(): void
+    {
+        Queue::fake();
+        $this->actingAs($this->docente);
+
+        Volt::test('pages.docente.novedades')
+            ->call('abrirModalReporte')
+            ->set('tipoItem', 'equipo')
+            ->set('codigoBarrasEquipo', $this->equipo->codigo_barras)
+            ->assertSet('equipoId', $this->equipo->id)
+            ->assertSet('errorEquipo', null)
+            ->assertSee($this->equipo->nombre)
+            ->set('ubicacionId', $this->laboratorio->id)
+            ->set('descripcion', 'Ruido anormal en el ventilador interno del osciloscopio.')
+            ->call('registrarNovedad')
+            ->assertHasNoErrors();
+
+        $this->assertDatabaseHas('fallas', [
+            'equipo_id' => $this->equipo->id,
+            'reportada_por' => $this->docente->id,
+            'descripcion' => 'Ruido anormal en el ventilador interno del osciloscopio.',
+        ]);
+
+        $this->assertEquals('en_mantenimiento', $this->equipo->fresh()->estado);
+    }
+
+    public function test_docente_recibe_error_si_codigo_de_equipo_no_existe(): void
+    {
+        $this->actingAs($this->docente);
+
+        Volt::test('pages.docente.novedades')
+            ->call('abrirModalReporte')
+            ->set('tipoItem', 'equipo')
+            ->set('codigoBarrasEquipo', 'EQ-INEXISTENTE-888')
+            ->assertSet('errorEquipo', "El código 'EQ-INEXISTENTE-888' no está registrado en el catálogo de equipos.")
+            ->assertSet('equipoId', null)
+            ->call('registrarNovedad')
+            ->assertHasErrors(['codigoBarrasEquipo']);
+    }
+
+    public function test_docente_recibe_error_si_equipo_ya_esta_dado_de_baja(): void
+    {
+        $this->equipo->update(['estado' => 'dado_de_baja']);
+        $this->actingAs($this->docente);
+
+        Volt::test('pages.docente.novedades')
+            ->call('abrirModalReporte')
+            ->set('tipoItem', 'equipo')
+            ->set('codigoBarrasEquipo', $this->equipo->codigo_barras)
+            ->assertSee('ya fue dado de baja formalmente')
+            ->assertSet('equipoId', null)
+            ->call('registrarNovedad')
+            ->assertHasErrors(['codigoBarrasEquipo']);
+    }
+
+    public function test_docente_reporta_novedad_tipo_otro_sin_requerir_equipo_generando_pdf_y_correo(): void
+    {
+        Queue::fake();
+        $this->actingAs($this->docente);
+
+        Volt::test('pages.docente.novedades')
+            ->call('abrirModalReporte')
+            ->set('tipoItem', 'otro')
+            ->assertSet('equipoId', null)
+            ->call('seleccionarTipoDestino', 'sala')
+            ->set('edificio_destino', 'Edificio A')
+            ->set('sala_destino', 'A201')
+            ->set('descripcion', 'Enchufes del mesón central sin corriente y con signos de chispazo eléctrico.')
+            ->set('severidad', 'alta')
+            ->call('registrarNovedad')
+            ->assertHasNoErrors()
+            ->assertSee('¡Novedad');
+
+        $falla = Falla::where('reportada_por', $this->docente->id)
+            ->whereNull('equipo_id')
+            ->whereNull('insumo_id')
+            ->first();
+
+        $this->assertNotNull($falla);
+        $this->assertEquals('Edificio A - A201', $falla->espacio_destino);
+        $this->assertStringContainsString('Enchufes del mesón central', $falla->descripcion);
+
+        // Verifica almacenamiento del PDF
+        Storage::disk('public')->assertExists("incidencias/Reporte_Incidencia_{$falla->id}.pdf");
     }
 }

@@ -12,7 +12,10 @@ use Livewire\Volt\Component;
 new #[Layout('layouts.app')] class extends Component {
     public bool $mostrarModalReporte = false;
     public string $tipoItem = 'equipo';
+    public string $codigoBarrasEquipo = '';
     public ?int $equipoId = null;
+    public ?Equipo $equipoSeleccionado = null;
+    public ?string $errorEquipo = null;
     public ?int $insumoId = null;
     public ?int $ubicacionId = null;
     public string $tipo_destino = 'laboratorio'; // 'sala' | 'laboratorio'
@@ -44,8 +47,11 @@ new #[Layout('layouts.app')] class extends Component {
     public function inicializarFormulario(): void
     {
         $this->tipoItem = 'equipo';
-        $this->equipoId = Equipo::first()?->id;
-        $this->insumoId = Insumo::first()?->id;
+        $this->codigoBarrasEquipo = '';
+        $this->equipoId = null;
+        $this->equipoSeleccionado = null;
+        $this->errorEquipo = null;
+        $this->insumoId = null;
         $this->tipo_destino = 'laboratorio';
         $this->edificio_destino = 'Edificio A';
         $this->sala_destino = 'A101';
@@ -53,6 +59,38 @@ new #[Layout('layouts.app')] class extends Component {
         $this->ubicacionId = $primerLab?->id;
         $this->descripcion = '';
         $this->severidad = 'media';
+    }
+
+    public function updatedCodigoBarrasEquipo(): void
+    {
+        $this->buscarEquipo();
+    }
+
+    public function buscarEquipo(): void
+    {
+        $this->errorEquipo = null;
+        $this->equipoSeleccionado = null;
+        $this->equipoId = null;
+
+        $codigo = trim($this->codigoBarrasEquipo);
+        if ($codigo === '') {
+            return;
+        }
+
+        $equipo = Equipo::with('ubicacion')->where('codigo_barras', $codigo)->first();
+
+        if (! $equipo) {
+            $this->errorEquipo = "El código '{$codigo}' no está registrado en el catálogo de equipos.";
+            return;
+        }
+
+        if ($equipo->estado === 'dado_de_baja') {
+            $this->errorEquipo = "El equipo '{$equipo->nombre}' ({$codigo}) ya fue dado de baja formalmente.";
+            return;
+        }
+
+        $this->equipoSeleccionado = $equipo;
+        $this->equipoId = $equipo->id;
     }
 
     public function seleccionarTipoDestino(string $tipo): void
@@ -92,6 +130,7 @@ new #[Layout('layouts.app')] class extends Component {
     public function registrarNovedad(FallaService $fallaService): void
     {
         $reglas = [
+            'tipoItem' => 'required|in:equipo,otro',
             'descripcion' => 'required|string|min:10',
             'tipo_destino' => 'required|in:sala,laboratorio',
         ];
@@ -101,6 +140,16 @@ new #[Layout('layouts.app')] class extends Component {
             'descripcion.min' => 'La descripción debe tener al menos 10 caracteres.',
             'tipo_destino.required' => 'Debe indicar si la novedad se detectó en SALA o LABORATORIO.',
         ];
+
+        if ($this->tipoItem === 'equipo') {
+            $this->buscarEquipo();
+            if ($this->errorEquipo || ! $this->equipoId) {
+                $this->addError('codigoBarrasEquipo', $this->errorEquipo ?? 'Debe ingresar o escanear un código de equipo válido.');
+                return;
+            }
+            $reglas['equipoId'] = 'required|exists:equipos,id';
+            $mensajes['equipoId.required'] = 'Debe seleccionar o escanear un equipo válido.';
+        }
 
         if ($this->tipo_destino === 'sala') {
             $reglas['edificio_destino'] = 'required|in:Edificio A,Edificio C';
@@ -130,7 +179,7 @@ new #[Layout('layouts.app')] class extends Component {
             $falla = $fallaService->reportarIncidencia(Auth::user(), [
                 'tipo_item' => $this->tipoItem,
                 'equipo_id' => $this->tipoItem === 'equipo' ? $this->equipoId : null,
-                'insumo_id' => $this->tipoItem === 'insumo' ? $this->insumoId : null,
+                'insumo_id' => null,
                 'ubicacion_id' => $ubicacionFinalId,
                 'tipo_destino' => $this->tipo_destino,
                 'edificio_destino' => $this->tipo_destino === 'sala' ? $this->edificio_destino : null,
@@ -353,6 +402,9 @@ new #[Layout('layouts.app')] class extends Component {
                                     <span class="px-2 py-0.5 text-[10px] bg-purple-50 text-purple-700 rounded font-bold uppercase border border-purple-200">Insumo</span>
                                     <span>{{ $inc->insumo->nombre }}</span>
                                     <span class="text-xs text-slate-500 font-normal">(Código: {{ $inc->insumo->codigo_barras }})</span>
+                                @else
+                                    <span class="px-2 py-0.5 text-[10px] bg-amber-50 text-amber-800 rounded font-bold uppercase border border-amber-200">Otro / Infraestructura</span>
+                                    <span>Incidencia General de Espacio</span>
                                 @endif
                             </div>
 
@@ -400,7 +452,7 @@ new #[Layout('layouts.app')] class extends Component {
                         </div>
                     @enderror
 
-                    <!-- Selección de Tipo: Equipo o Insumo -->
+                    <!-- Selección de Tipo: Equipo u Otro -->
                     <div>
                         <label class="block font-semibold text-slate-700 mb-1.5">Tipo de Recurso Afectado *</label>
                         <div class="grid grid-cols-2 gap-3">
@@ -408,31 +460,59 @@ new #[Layout('layouts.app')] class extends Component {
                                 <input type="radio" wire:model.live="tipoItem" value="equipo" class="text-amber-600 focus:ring-amber-500">
                                 <span>Equipo / Maquinaria</span>
                             </label>
-                            <label class="flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer {{ $tipoItem === 'insumo' ? 'border-amber-500 bg-amber-50 text-amber-900 font-bold' : 'border-slate-200 text-slate-700' }}">
-                                <input type="radio" wire:model.live="tipoItem" value="insumo" class="text-amber-600 focus:ring-amber-500">
-                                <span>Insumo / Material</span>
+                            <label class="flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer {{ $tipoItem === 'otro' ? 'border-amber-500 bg-amber-50 text-amber-900 font-bold' : 'border-slate-200 text-slate-700' }}">
+                                <input type="radio" wire:model.live="tipoItem" value="otro" class="text-amber-600 focus:ring-amber-500">
+                                <span>Otro</span>
                             </label>
                         </div>
                     </div>
 
-                    <!-- Selector específico según tipo -->
+                    <!-- Si es Equipo: Cuadro de texto para escribir/escanear código con validación -->
                     @if($tipoItem === 'equipo')
                         <div>
-                            <label class="block font-semibold text-slate-700 mb-1">Seleccione el Equipo Afectado *</label>
-                            <select wire:model="equipoId" class="w-full text-xs sm:text-sm rounded-lg border-slate-300 focus:border-amber-500 focus:ring-amber-500">
-                                @foreach($this->equiposDisponibles() as $eq)
-                                    <option value="{{ $eq->id }}">{{ $eq->nombre }} (Marca: {{ $eq->marca }} | S/N: {{ $eq->numero_serie }})</option>
-                                @endforeach
-                            </select>
-                        </div>
-                    @else
-                        <div>
-                            <label class="block font-semibold text-slate-700 mb-1">Seleccione el Insumo Afectado *</label>
-                            <select wire:model="insumoId" class="w-full text-xs sm:text-sm rounded-lg border-slate-300 focus:border-amber-500 focus:ring-amber-500">
-                                @foreach($this->insumosDisponibles() as $ins)
-                                    <option value="{{ $ins->id }}">{{ $ins->nombre }} (Código: {{ $ins->codigo_barras }})</option>
-                                @endforeach
-                            </select>
+                            <label class="block font-semibold text-slate-700 mb-1">Código del Equipo Afectado *</label>
+                            <div class="relative">
+                                <input
+                                    wire:model.live.debounce.300ms="codigoBarrasEquipo"
+                                    wire:keydown.enter.prevent="buscarEquipo"
+                                    type="text"
+                                    placeholder="Escanee con lector o escriba el código (ej. EQ-LNV-T14-01)..."
+                                    autofocus
+                                    class="w-full text-xs sm:text-sm rounded-lg font-mono border-slate-300 focus:border-amber-500 focus:ring-amber-500 uppercase pr-10"
+                                >
+                                <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-slate-400">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m0 14v1m8-8h-1M5 12H4m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                                    </svg>
+                                </div>
+                            </div>
+
+                            @if($errorEquipo)
+                                <div class="mt-2 p-2.5 bg-red-50 border border-red-200 rounded-md flex items-start gap-2 text-xs text-red-700">
+                                    <svg class="w-4 h-4 text-red-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                                    <span>{{ $errorEquipo }}</span>
+                                </div>
+                            @elseif($equipoSeleccionado)
+                                <div class="mt-2 p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-xs font-bold text-emerald-900">{{ $equipoSeleccionado->nombre }}</span>
+                                        <span class="px-2 py-0.5 text-[10px] font-semibold rounded uppercase bg-emerald-200 text-emerald-800">
+                                            {{ $equipoSeleccionado->estado }}
+                                        </span>
+                                    </div>
+                                    <div class="mt-1 text-xs text-emerald-800 space-y-0.5">
+                                        <div><span class="font-semibold">Código:</span> <span class="font-mono">{{ $equipoSeleccionado->codigo_barras }}</span> &bull; <span class="font-semibold">Marca/Modelo:</span> {{ $equipoSeleccionado->marca }} {{ $equipoSeleccionado->modelo }}</div>
+                                        @if($equipoSeleccionado->numero_serie)
+                                            <div><span class="font-semibold">N° Serie:</span> {{ $equipoSeleccionado->numero_serie }}</div>
+                                        @endif
+                                        @if($equipoSeleccionado->ubicacion)
+                                            <div><span class="font-semibold">Ubicación asignada:</span> {{ $equipoSeleccionado->ubicacion->nombre }}</div>
+                                        @endif
+                                    </div>
+                                </div>
+                            @endif
+                            @error('codigoBarrasEquipo') <span class="text-[11px] text-red-600 font-semibold block mt-1">{{ $message }}</span> @enderror
+                            @error('equipoId') <span class="text-[11px] text-red-600 font-semibold block mt-1">{{ $message }}</span> @enderror
                         </div>
                     @endif
 
@@ -440,7 +520,7 @@ new #[Layout('layouts.app')] class extends Component {
                     <div class="p-3 bg-gray-50/90 rounded-xl border border-gray-200 space-y-3">
                         <div>
                             <label class="block text-xs font-semibold text-gray-700 mb-1.5">
-                                Sala / Laboratorio de Destino <span class="text-amber-600">*</span>
+                                Lugar <span class="text-amber-600">*</span>
                             </label>
                             <div class="grid grid-cols-2 gap-2">
                                 <button
@@ -548,7 +628,12 @@ new #[Layout('layouts.app')] class extends Component {
                     <button wire:click="cerrarModalReporte" type="button" class="px-4 py-2 text-xs sm:text-sm font-semibold text-slate-600 hover:bg-slate-200 rounded-lg transition">
                         Cancelar
                     </button>
-                    <button wire:click="registrarNovedad" type="button" class="px-5 py-2 text-xs sm:text-sm font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-sm transition active:scale-95">
+                    <button
+                        wire:click="registrarNovedad"
+                        type="button"
+                        @disabled($tipoItem === 'equipo' && (! $equipoSeleccionado || $errorEquipo))
+                        class="px-5 py-2 text-xs sm:text-sm font-bold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg shadow-sm transition active:scale-95"
+                    >
                         Registrar novedad
                     </button>
                 </div>

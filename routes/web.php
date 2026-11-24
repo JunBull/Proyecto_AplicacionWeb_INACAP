@@ -50,9 +50,6 @@ Route::middleware(['auth', 'role:encargado_panol,administrador'])->prefix('panol
     Volt::route('/mantenimientos', 'pages.mantenimientos.index')->name('mantenimientos');
     Volt::route('/bajas', 'pages.bajas.index')->name('bajas');
     Volt::route('/etiquetas', 'pages.etiquetas.index')->name('etiquetas');
-    Volt::route('/proveedores', 'pages.proveedores.index')->name('proveedores');
-    Volt::route('/cotizaciones', 'pages.cotizaciones.index')->name('cotizaciones');
-    Volt::route('/compras', 'pages.compras.index')->name('compras');
 });
 
 // Módulo Docente: Docente, Pañolero y Administrador

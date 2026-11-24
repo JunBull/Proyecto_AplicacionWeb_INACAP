@@ -31,9 +31,13 @@ new #[Layout('layouts.app')] class extends Component
     public string $subfiltroPreventivo = 'activos'; // 'activos', 'completados'
     public string $subfiltroFallas = 'pendientes';   // 'pendientes', 'resueltas'
 
-    // Modal Programar (existente)
+    // Modal Programar (existente extendido)
     public bool $mostrarModalProgramar = false;
+    public string $selectorEquipo = 'otro'; // 'falla_X' o 'otro'
+    public ?int $falla_id = null;
     public ?int $equipo_id = null;
+    public string $codigo_equipo_otro = '';
+    public ?Equipo $equipoOtroEncontrado = null;
     public ?int $proveedor_id = null;
     public string $tipo = 'preventivo';
     public string $subtipo = 'REV-A';
@@ -78,15 +82,98 @@ new #[Layout('layouts.app')] class extends Component
         }
         $this->fecha_programada = now()->addMonths(6)->toDateString();
         $this->fecha_realizada = now()->toDateString();
+
+        if ($this->pestanaActiva === 'fallas') {
+            session(['mantenimientos_ultima_falla_vista_id' => Falla::max('id') ?? 0]);
+        }
     }
 
     public function updatedEquipoId($valor): void
     {
         if ($valor) {
             $equipo = Equipo::find($valor);
-            if ($equipo?->requiere_calibracion && $this->tipo === 'preventivo') {
-                $this->subtipo = 'REV-C';
+            if ($equipo) {
+                $this->equipoOtroEncontrado = $equipo;
+                $this->codigo_equipo_otro = $equipo->codigo_barras ?? '';
+                if ($equipo->requiere_calibracion && $this->tipo === 'preventivo') {
+                    $this->subtipo = 'REV-C';
+                }
             }
+        }
+    }
+
+    public function updatedSelectorEquipo($valor): void
+    {
+        $this->resetErrorBag();
+
+        if (str_starts_with($valor, 'falla_')) {
+            $fallaId = (int) str_replace('falla_', '', $valor);
+            $falla = Falla::with('equipo')->find($fallaId);
+            if ($falla && $falla->equipo) {
+                $this->falla_id = $falla->id;
+                $this->equipo_id = $falla->equipo_id;
+                $this->equipoOtroEncontrado = null;
+                $this->codigo_equipo_otro = '';
+                $this->tipo = 'correctivo';
+                $this->subtipo = 'MC-PLAN';
+                $this->frecuencia = 'no_aplica';
+            }
+        } elseif ($valor === 'otro') {
+            $this->falla_id = null;
+            $this->tipo = 'preventivo';
+            $this->subtipo = 'REV-A';
+            $this->frecuencia = 'semestral';
+
+            if ($this->codigo_equipo_otro) {
+                $this->buscarEquipoOtro($this->codigo_equipo_otro);
+            } else {
+                $this->equipo_id = null;
+                $this->equipoOtroEncontrado = null;
+            }
+        }
+    }
+
+    public function updatedCodigoEquipoOtro($valor): void
+    {
+        $this->buscarEquipoOtro((string) $valor);
+    }
+
+    public function buscarEquipoOtro(string $codigo): void
+    {
+        $codigoLimpio = trim($codigo);
+        if ($codigoLimpio === '') {
+            $this->equipo_id = null;
+            $this->equipoOtroEncontrado = null;
+            return;
+        }
+
+        $equipo = Equipo::where('codigo_barras', $codigoLimpio)
+            ->where('estado', '!=', 'dado_de_baja')
+            ->first();
+
+        if ($equipo) {
+            $this->equipo_id = $equipo->id;
+            $this->equipoOtroEncontrado = $equipo;
+
+            $fallaActiva = $equipo->fallas()
+                ->whereIn('estado', ['reportada', 'en_revision', 'en_reparacion'])
+                ->latest('id')
+                ->first();
+
+            if ($fallaActiva) {
+                $this->falla_id = $fallaActiva->id;
+                $this->tipo = 'correctivo';
+                $this->subtipo = 'MC-PLAN';
+                $this->frecuencia = 'no_aplica';
+            } else {
+                $this->falla_id = null;
+                if ($this->tipo === 'preventivo' && $equipo->requiere_calibracion) {
+                    $this->subtipo = 'REV-C';
+                }
+            }
+        } else {
+            $this->equipo_id = null;
+            $this->equipoOtroEncontrado = null;
         }
     }
 
@@ -122,8 +209,33 @@ new #[Layout('layouts.app')] class extends Component
 
         if (in_array($pestana, ['preventivo', 'fallas'], true)) {
             $this->pestanaActiva = $pestana;
+            if ($pestana === 'fallas') {
+                session(['mantenimientos_ultima_falla_vista_id' => Falla::max('id') ?? 0]);
+            }
             $this->resetPage();
         }
+    }
+
+    public function tieneNuevasFallas(): bool
+    {
+        if ($this->pestanaActiva === 'fallas') {
+            return false;
+        }
+
+        $ultimaFalla = Falla::where(function ($q) {
+                $q->whereNotNull('equipo_id')->orWhereNotNull('insumo_id');
+            })
+            ->whereIn('estado', ['reportada', 'en_revision', 'en_reparacion'])
+            ->latest('id')
+            ->first();
+
+        if (! $ultimaFalla) {
+            return false;
+        }
+
+        $ultimoIdVisto = (int) session('mantenimientos_ultima_falla_vista_id', 0);
+
+        return $ultimaFalla->id > $ultimoIdVisto;
     }
 
     public function cambiarSubfiltroPreventivo(string $subfiltro): void
@@ -206,6 +318,15 @@ new #[Layout('layouts.app')] class extends Component
         return $servicio->evaluarAlertasMantenimiento();
     }
 
+    public function fallasPendientesParaProgramar()
+    {
+        return Falla::whereNotNull('equipo_id')
+            ->whereIn('estado', ['reportada', 'en_revision', 'en_reparacion'])
+            ->with(['equipo.ubicacion'])
+            ->latest('id')
+            ->get();
+    }
+
     public function equiposDisponibles()
     {
         return Equipo::where('estado', '!=', 'dado_de_baja')->orderBy('nombre')->get();
@@ -219,17 +340,41 @@ new #[Layout('layouts.app')] class extends Component
     public function abrirModalProgramar(): void
     {
         $this->resetErrorBag();
-        $this->tipo = 'preventivo';
-        $this->subtipo = 'REV-A';
-        $this->frecuencia = 'semestral';
+        $this->proveedor_id = null;
         $this->fecha_programada = now()->addMonths(6)->toDateString();
         $this->observaciones = '';
-        $this->proveedor_id = null;
 
-        if ($this->equipo_id) {
-            $equipo = Equipo::find($this->equipo_id);
-            if ($equipo?->requiere_calibracion) {
-                $this->subtipo = 'REV-C';
+        $fallas = $this->fallasPendientesParaProgramar();
+
+        if ($fallas->isNotEmpty()) {
+            $primeraFalla = $fallas->first();
+            $this->selectorEquipo = 'falla_' . $primeraFalla->id;
+            $this->falla_id = $primeraFalla->id;
+            $this->equipo_id = $primeraFalla->equipo_id;
+            $this->codigo_equipo_otro = '';
+            $this->equipoOtroEncontrado = null;
+            $this->tipo = 'correctivo';
+            $this->subtipo = 'MC-PLAN';
+            $this->frecuencia = 'no_aplica';
+        } else {
+            $this->selectorEquipo = 'otro';
+            $this->falla_id = null;
+            $this->tipo = 'preventivo';
+            $this->subtipo = 'REV-A';
+            $this->frecuencia = 'semestral';
+
+            $equipoInicial = $this->equipo_id ? Equipo::find($this->equipo_id) : Equipo::where('estado', '!=', 'dado_de_baja')->first();
+            if ($equipoInicial) {
+                $this->equipo_id = $equipoInicial->id;
+                $this->codigo_equipo_otro = $equipoInicial->codigo_barras ?? '';
+                $this->equipoOtroEncontrado = $equipoInicial;
+                if ($equipoInicial->requiere_calibracion) {
+                    $this->subtipo = 'REV-C';
+                }
+            } else {
+                $this->equipo_id = null;
+                $this->codigo_equipo_otro = '';
+                $this->equipoOtroEncontrado = null;
             }
         }
 
@@ -239,6 +384,13 @@ new #[Layout('layouts.app')] class extends Component
     public function guardarMantenimiento(MantenimientoService $servicio): void
     {
         Gate::authorize('create', Mantenimiento::class);
+
+        if ($this->selectorEquipo === 'otro') {
+            if (! $this->equipo_id) {
+                $this->addError('codigo_equipo_otro', 'Debe ingresar un código de barras válido de un equipo activo.');
+                return;
+            }
+        }
 
         $reglas = [
             'equipo_id' => 'required|exists:equipos,id',
@@ -260,6 +412,7 @@ new #[Layout('layouts.app')] class extends Component
 
         $this->validate($reglas, [
             'proveedor_id.exists' => 'El proveedor seleccionado debe estar habilitado para servicios de mantenimiento.',
+            'frecuencia.required' => 'Los mantenimientos preventivos requieren periodicidad semestral o anual.',
         ]);
 
         $equipo = Equipo::findOrFail($this->equipo_id);
@@ -272,11 +425,14 @@ new #[Layout('layouts.app')] class extends Component
                 $this->fecha_programada,
                 $this->proveedor_id ? (int) $this->proveedor_id : null,
                 $this->observaciones,
-                $this->subtipo
+                $this->subtipo,
+                $this->falla_id
             );
 
             $this->mostrarModalProgramar = false;
-            session()->flash('mensaje', 'Mantenimiento preventivo programado con éxito.');
+            session()->flash('mensaje', $this->tipo === 'correctivo'
+                ? 'Mantenimiento correctivo programado con éxito vinculado a la incidencia técnica.'
+                : 'Mantenimiento preventivo programado con éxito.');
         } catch (ValidationException $e) {
             foreach ($e->errors() as $campo => $mensajes) {
                 $this->addError($campo, $mensajes[0]);
@@ -504,7 +660,7 @@ new #[Layout('layouts.app')] class extends Component
                 class="pb-3 px-3 text-sm font-semibold transition border-b-2 flex items-center gap-2 {{ $pestanaActiva === 'preventivo' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300' }}"
             >
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-                Mantenimiento Preventivo
+                <span>Mantenimiento Preventivo</span>
             </button>
             <button 
                 type="button" 
@@ -512,7 +668,13 @@ new #[Layout('layouts.app')] class extends Component
                 class="pb-3 px-3 text-sm font-semibold transition border-b-2 flex items-center gap-2 {{ $pestanaActiva === 'fallas' ? 'border-red-600 text-red-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300' }}"
             >
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-                Equipos reportados con fallas
+                <span>Equipos reportados con fallas</span>
+                @if($this->tieneNuevasFallas())
+                    <span class="relative flex h-2 w-2" title="Hay nuevos equipos reportados con fallas pendientes de revisión" data-testid="indicador-nuevas-fallas">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-red-600"></span>
+                    </span>
+                @endif
             </button>
         </div>
 
@@ -947,21 +1109,78 @@ new #[Layout('layouts.app')] class extends Component
                 <div class="space-y-4">
                     <div>
                         <label class="block text-xs font-semibold text-gray-700 uppercase mb-1">Equipo a Intervenir</label>
-                        <select wire:model.live="equipo_id" class="w-full text-sm rounded-md border-gray-300">
-                            @foreach($this->equiposDisponibles() as $e)
-                                <option value="{{ $e->id }}">
-                                    [{{ $e->codigo_barras ?? 'S/C' }}] {{ $e->nombre }} {{ $e->requiere_calibracion ? '· [Requiere Calibración]' : '' }}
-                                </option>
-                            @endforeach
+                        @php
+                            $fallasPendientesModal = $this->fallasPendientesParaProgramar();
+                        @endphp
+                        <select wire:model.live="selectorEquipo" class="w-full text-sm rounded-md border-gray-300">
+                            @if($fallasPendientesModal->isNotEmpty())
+                                <optgroup label="⚠️ Equipos con Falla Reportada (Mantenimiento Correctivo)">
+                                    @foreach($fallasPendientesModal as $f)
+                                        <option value="falla_{{ $f->id }}">
+                                            [{{ $f->equipo?->codigo_barras ?? 'S/C' }}] {{ $f->equipo?->nombre }} — Falla #INC-{{ str_pad($f->id, 5, '0', STR_PAD_LEFT) }} ({{ \Illuminate\Support\Str::limit($f->descripcion, 35) }})
+                                        </option>
+                                    @endforeach
+                                </optgroup>
+                            @endif
+                            <option value="otro">➕ Otro equipo (Escanear o ingresar código de barras)...</option>
                         </select>
                         @error('equipo_id') <span class="text-xs text-red-600 font-medium">{{ $message }}</span> @enderror
-                        @if($this->equipoSeleccionadoRequiereCalibracion())
-                            <div class="mt-2 flex items-center gap-2 text-xs text-purple-900 bg-purple-50 p-2.5 rounded-md border border-purple-200">
-                                <svg class="w-4 h-4 text-purple-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                                <span><strong>Estándar Académico INACAP:</strong> Este equipo requiere calibración y ajuste periódico según la matriz institucional (Sugerido: <strong>Calibración y Ajuste</strong>).</span>
-                            </div>
-                        @endif
                     </div>
+
+                    {{-- Casilla para Otro Equipo --}}
+                    @if($selectorEquipo === 'otro')
+                        <div class="p-3 bg-slate-50 border border-slate-200 rounded-md space-y-2">
+                            <label class="block text-xs font-semibold text-gray-700 uppercase">
+                                Código de Barras del Equipo
+                                <span class="text-slate-500 font-normal normal-case">(Lector USB o ingreso manual)</span>
+                            </label>
+                            <div class="relative">
+                                <input 
+                                    type="text" 
+                                    wire:model.live.debounce.300ms="codigo_equipo_otro" 
+                                    class="w-full text-sm rounded-md border-gray-300 font-mono focus:ring-red-500 focus:border-red-500 pr-10" 
+                                    placeholder="Ej: EQ-TEK-1052-01 o dispare con el lector..."
+                                >
+                                <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-gray-400">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"/></svg>
+                                </div>
+                            </div>
+                            @error('codigo_equipo_otro') <span class="text-xs text-red-600 font-medium block">{{ $message }}</span> @enderror
+
+                            @if($equipoOtroEncontrado)
+                                <div class="p-2.5 bg-emerald-50 border border-emerald-200 rounded-md text-xs text-emerald-900 space-y-1">
+                                    <div class="flex items-center justify-between font-bold">
+                                        <span>[{{ $equipoOtroEncontrado->codigo_barras ?? 'S/C' }}] {{ $equipoOtroEncontrado->nombre }}</span>
+                                        <span class="px-1.5 py-0.5 rounded text-[10px] uppercase {{ $equipoOtroEncontrado->estado === 'disponible' ? 'bg-emerald-200 text-emerald-800' : 'bg-amber-200 text-amber-800' }}">
+                                            {{ ucfirst(str_replace('_', ' ', $equipoOtroEncontrado->estado)) }}
+                                        </span>
+                                    </div>
+                                    <div class="text-[11px] text-emerald-800 flex gap-4">
+                                        <span>Marca: <strong>{{ $equipoOtroEncontrado->marca }}</strong></span>
+                                        <span>Modelo: <strong>{{ $equipoOtroEncontrado->modelo }}</strong></span>
+                                        <span>Ubicación: <strong>{{ $equipoOtroEncontrado->ubicacion?->nombre ?? 'Pañol' }}</strong></span>
+                                    </div>
+                                    @if($falla_id)
+                                        <div class="mt-1 pt-1 border-t border-emerald-200 text-[11px] text-amber-800 font-semibold flex items-center gap-1">
+                                            <svg class="w-3.5 h-3.5 text-amber-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                                            <span>Equipo con incidencia activa (#INC-{{ str_pad($falla_id, 5, '0', STR_PAD_LEFT) }}). Se programará como Mantenimiento Correctivo.</span>
+                                        </div>
+                                    @endif
+                                </div>
+                            @elseif(trim($codigo_equipo_otro) !== '')
+                                <div class="p-2 bg-red-50 border border-red-200 rounded-md text-xs text-red-700">
+                                    No se encontró ningún equipo activo registrado con el código ingresado.
+                                </div>
+                            @endif
+                        </div>
+                    @endif
+
+                    @if($this->equipoSeleccionadoRequiereCalibracion())
+                        <div class="mt-2 flex items-center gap-2 text-xs text-purple-900 bg-purple-50 p-2.5 rounded-md border border-purple-200">
+                            <svg class="w-4 h-4 text-purple-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                            <span><strong>Estándar Académico INACAP:</strong> Este equipo requiere calibración y ajuste periódico según la matriz institucional (Sugerido: <strong>Calibración y Ajuste</strong>).</span>
+                        </div>
+                    @endif
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
@@ -1007,17 +1226,27 @@ new #[Layout('layouts.app')] class extends Component
                                 </div>
                             </div>
                             <select wire:model.live="subtipo" class="w-full text-sm rounded-md border-gray-300">
-                                <optgroup label="Mantenimiento Preventivo">
-                                    <option value="REV-A">Revisión General</option>
-                                    <option value="REV-B">Mecánica y Eléctrica</option>
-                                    <option value="REV-C">Calibración y Ajuste</option>
-                                    <option value="PFG">Prueba Funcional</option>
-                                </optgroup>
-                                <optgroup label="Mantenimiento Correctivo">
-                                    <option value="MC-PLAN">Correctivo Programado</option>
-                                    <option value="MC-URG">Correctivo Emergencia</option>
-                                </optgroup>
+                                @if($falla_id)
+                                    <optgroup label="Mantenimiento Correctivo (Equipo con Falla)">
+                                        <option value="MC-PLAN">Correctivo Programado</option>
+                                        <option value="MC-URG">Correctivo Emergencia</option>
+                                    </optgroup>
+                                @else
+                                    <optgroup label="Mantenimiento Preventivo">
+                                        <option value="REV-A">Revisión General</option>
+                                        <option value="REV-B">Mecánica y Eléctrica</option>
+                                        <option value="REV-C">Calibración y Ajuste</option>
+                                        <option value="PFG">Prueba Funcional</option>
+                                    </optgroup>
+                                    <optgroup label="Mantenimiento Correctivo">
+                                        <option value="MC-PLAN">Correctivo Programado</option>
+                                        <option value="MC-URG">Correctivo Emergencia</option>
+                                    </optgroup>
+                                @endif
                             </select>
+                            @if($falla_id)
+                                <p class="mt-1 text-[11px] text-amber-700 font-medium">Equipo con falla reportada: solo permite intervenciones correctivas.</p>
+                            @endif
                             @error('subtipo') <span class="text-xs text-red-600 font-medium">{{ $message }}</span> @enderror
                         </div>
 

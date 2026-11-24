@@ -63,6 +63,40 @@ new #[Layout('layouts.app')] class extends Component
                 $this->mostrarModalSolicitud = true;
             }
         }
+
+        $this->precargarProveedoresPorCarrera();
+    }
+
+    public function updatedCarreraId(?int $val): void
+    {
+        $this->precargarProveedoresPorCarrera();
+    }
+
+    public function abrirModalSolicitud(): void
+    {
+        if (! $this->carrera_id) {
+            $carrera = Carrera::where('activa', true)->first();
+            if ($carrera) {
+                $this->carrera_id = $carrera->id;
+            }
+        }
+        $this->precargarProveedoresPorCarrera();
+        $this->mostrarModalSolicitud = true;
+    }
+
+    public function precargarProveedoresPorCarrera(): void
+    {
+        if (! $this->carrera_id) {
+            $this->proveedoresSeleccionados = [];
+            return;
+        }
+
+        $provs = Proveedor::paraCarrera((int) $this->carrera_id)->paraInsumos()->get();
+        if ($provs->isEmpty()) {
+            $provs = Proveedor::paraCarrera((int) $this->carrera_id)->get();
+        }
+
+        $this->proveedoresSeleccionados = $provs->pluck('id')->map(fn ($id) => (string) $id)->toArray();
     }
 
     public function solicitudes(CotizacionService $service)
@@ -190,7 +224,7 @@ new #[Layout('layouts.app')] class extends Component
                     <p class="text-sm text-gray-500">Emisión de cotizaciones a proveedores y adjudicación de compras.</p>
                 </div>
                 <button
-                    wire:click="$set('mostrarModalSolicitud', true)"
+                    wire:click="abrirModalSolicitud"
                     class="px-4 py-2 bg-red-700 hover:bg-red-800 text-white font-medium text-sm rounded-md shadow"
                 >
                     + Nueva Solicitud de Cotización
@@ -343,8 +377,8 @@ new #[Layout('layouts.app')] class extends Component
                     <form wire:submit.prevent="guardarSolicitud" class="space-y-4">
                         <div>
                             <label class="block text-xs font-semibold text-gray-700 uppercase">Carrera Solicitante *</label>
-                            <select wire:model="carrera_id" class="w-full border-gray-300 rounded-md shadow-sm text-sm">
-                                @foreach(Carrera::where('activa', true)->get() as $c)
+                            <select wire:model.live="carrera_id" class="w-full border-gray-300 rounded-md shadow-sm text-sm">
+                                @foreach(Carrera::where('activa', true)->orderBy('nombre')->get() as $c)
                                     <option value="{{ $c->id }}">{{ $c->nombre }} ({{ $c->codigo }})</option>
                                 @endforeach
                             </select>
@@ -358,14 +392,36 @@ new #[Layout('layouts.app')] class extends Component
                         </div>
 
                         <div>
-                            <label class="block text-xs font-semibold text-gray-700 uppercase mb-1">Proveedores a Notificar (Despacho en Cola)</label>
-                            <div class="max-h-40 overflow-y-auto border border-gray-300 rounded-md p-2 space-y-1">
-                                @foreach(Proveedor::where('activo', true)->orderBy('razon_social')->get() as $prov)
-                                    <label class="flex items-center text-xs text-gray-800">
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="block text-xs font-semibold text-gray-700 uppercase">Proveedores a Notificar (Despacho en Cola)</label>
+                                <span class="text-[11px] text-gray-500 font-medium">
+                                    {{ count($proveedoresSeleccionados) }} preseleccionado(s)
+                                </span>
+                            </div>
+                            <div class="max-h-48 overflow-y-auto border border-gray-300 rounded-md p-2 space-y-1 bg-gray-50">
+                                @php
+                                    $provsDisponibles = \App\Models\Proveedor::paraCarrera($this->carrera_id)->orderBy('razon_social')->get();
+                                @endphp
+                                @forelse($provsDisponibles as $prov)
+                                    <label class="flex items-center text-xs text-gray-800 hover:bg-white p-1 rounded transition cursor-pointer">
                                         <input type="checkbox" wire:model="proveedoresSeleccionados" value="{{ $prov->id }}" class="rounded border-gray-300 text-red-600 shadow-sm mr-2">
-                                        <span>{{ $prov->razon_social }} ({{ $prov->correo }}) - <span class="text-gray-400">{{ $prov->tipo }}</span></span>
+                                        <span class="font-medium">{{ $prov->razon_social }}</span>
+                                        <span class="text-gray-400 text-[11px] ml-1">({{ $prov->correo }})</span>
+                                        @if($prov->carreras->isNotEmpty())
+                                            <span class="ml-auto px-1.5 py-0.5 rounded text-[10px] bg-red-100 text-red-700 font-semibold shrink-0">
+                                                Carrera
+                                            </span>
+                                        @else
+                                            <span class="ml-auto px-1.5 py-0.5 rounded text-[10px] bg-gray-200 text-gray-700 font-semibold shrink-0">
+                                                General
+                                            </span>
+                                        @endif
                                     </label>
-                                @endforeach
+                                @empty
+                                    <p class="text-xs text-amber-700 p-2">
+                                        No hay proveedores activos asociados a esta carrera ni proveedores generales.
+                                    </p>
+                                @endforelse
                             </div>
                             @error('proveedores') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
                         </div>

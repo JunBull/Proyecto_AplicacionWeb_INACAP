@@ -4,6 +4,7 @@ namespace Tests\Feature\HitoCinco;
 
 use App\Models\BajaReemplazo;
 use App\Models\Carrera;
+use App\Models\Compra;
 use App\Models\Cotizacion;
 use App\Models\Equipo;
 use App\Models\Insumo;
@@ -141,6 +142,23 @@ class SeguridadPermisosOwaspTest extends TestCase
         // Excepción de cuota mínima: solo Admin
         $this->assertFalse(Gate::forUser($this->panolero)->allows('autorizarExcepcion', Cotizacion::class));
         $this->assertTrue(Gate::forUser($this->admin)->allows('autorizarExcepcion', Cotizacion::class));
+    }
+
+    /**
+     * OWASP A01: Exclusividad del Administrador para el módulo completo de Adquisiciones.
+     */
+    public function test_panolero_no_puede_gestionar_adquisiciones(): void
+    {
+        $this->assertFalse(Gate::forUser($this->panolero)->allows('create', Compra::class));
+        $this->assertFalse(Gate::forUser($this->panolero)->allows('viewAny', Compra::class));
+        $this->assertFalse(Gate::forUser($this->panolero)->allows('create', Cotizacion::class));
+        $this->assertFalse(Gate::forUser($this->panolero)->allows('viewAny', Cotizacion::class));
+        $this->assertFalse(Gate::forUser($this->panolero)->allows('create', Proveedor::class));
+        $this->assertFalse(Gate::forUser($this->panolero)->allows('viewAny', Proveedor::class));
+
+        $this->assertTrue(Gate::forUser($this->admin)->allows('create', Compra::class));
+        $this->assertTrue(Gate::forUser($this->admin)->allows('create', Cotizacion::class));
+        $this->assertTrue(Gate::forUser($this->admin)->allows('create', Proveedor::class));
     }
 
     /**

@@ -55,4 +55,10 @@ class Carrera extends Model
     {
         return $this->hasMany(Compra::class, 'carrera_id');
     }
+
+    public function proveedores(): BelongsToMany
+    {
+        return $this->belongsToMany(Proveedor::class, 'carrera_proveedor', 'carrera_id', 'proveedor_id')
+            ->withTimestamps();
+    }
 }

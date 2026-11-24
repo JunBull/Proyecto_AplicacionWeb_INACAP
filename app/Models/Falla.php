@@ -65,6 +65,11 @@ class Falla extends Model
         return $this->hasMany(BajaReemplazo::class, 'falla_id');
     }
 
+    public function mantenimientos(): HasMany
+    {
+        return $this->hasMany(Mantenimiento::class, 'falla_id');
+    }
+
     public function documentos(): MorphMany
     {
         return $this->morphMany(Documento::class, 'documentable');
