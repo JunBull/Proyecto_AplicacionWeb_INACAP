@@ -290,7 +290,7 @@ new #[Layout('layouts.app')] class extends Component
                                 wire:model.live.debounce.300ms="codigoBarras"
                                 wire:keydown.enter.prevent="buscarEquipo"
                                 type="text"
-                                placeholder="Escanee con lector o escriba el código (ej. EQ-CSC-2960-01)..."
+                                placeholder="Escanee con lector o escriba el código (ej. EQ-SW-CSC-2960-01)..."
                                 autofocus
                                 class="w-full text-sm rounded-md font-mono border-gray-300 focus:border-red-600 focus:ring-red-600 uppercase pr-10"
                             >

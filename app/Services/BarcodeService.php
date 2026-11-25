@@ -156,8 +156,10 @@ SVG;
 HTML;
     }
 
+    public const MAX_ETIQUETAS_LOTE = 100;
+
     /**
-     * Genera un lote de hasta 20 etiquetas optimizado para impresión (cumpliendo SLA-07: <= 10 seg).
+     * Genera un lote de hasta 100 etiquetas optimizado para impresión.
      *
      * @param  array<int, array{codigo: string, nombre: string, institucion?: string, carrera?: string|null, ubicacion?: string|null}>  $items
      * @return array{tiempo_ms: float, total: int, html: string}
@@ -168,8 +170,8 @@ HTML;
             return ! empty($item['codigo']) && trim((string) $item['codigo']) !== '';
         }));
 
-        if (count($itemsValidos) > 20) {
-            throw new InvalidArgumentException('El tamaño máximo de lote institucional es de 20 etiquetas por tirada (SLA-07).');
+        if (count($itemsValidos) > self::MAX_ETIQUETAS_LOTE) {
+            throw new InvalidArgumentException('El tamaño máximo permitido por tirada es de '.self::MAX_ETIQUETAS_LOTE.' etiquetas.');
         }
 
         $inicio = microtime(true);
@@ -203,7 +205,7 @@ HTML;
             return null;
         }
 
-        $equipo = Equipo::with(['ubicacion.carrera', 'categoria'])->where('codigo_barras', $codigoLimpio)->first();
+        $equipo = Equipo::with(['ubicacion.carrera', 'categoria', 'subcategoria'])->where('codigo_barras', $codigoLimpio)->first();
         if ($equipo) {
             return ['tipo' => 'equipo', 'item' => $equipo];
         }
@@ -211,6 +213,39 @@ HTML;
         $insumo = Insumo::with('ubicacion.carrera')->where('codigo_barras', $codigoLimpio)->first();
         if ($insumo) {
             return ['tipo' => 'insumo', 'item' => $insumo];
+        }
+
+        return null;
+    }
+
+    /**
+     * Busca un equipo o insumo por código de barras y, como respaldo para reimpresión,
+     * por número de serie exacto de equipo (M2).
+     *
+     * @return array{tipo: 'equipo'|'insumo', item: Equipo|Insumo, coincidencia?: string}|null
+     */
+    public function buscarPorCodigoONumeroSerie(string $termino): ?array
+    {
+        $resultado = $this->buscarPorCodigoBarras($termino);
+        if ($resultado !== null) {
+            return $resultado;
+        }
+
+        $terminoLimpio = trim($termino);
+        if ($terminoLimpio === '') {
+            return null;
+        }
+
+        $equipoPorSerie = Equipo::with(['ubicacion.carrera', 'categoria', 'subcategoria'])
+            ->where('numero_serie', $terminoLimpio)
+            ->first();
+
+        if ($equipoPorSerie) {
+            return [
+                'tipo' => 'equipo',
+                'item' => $equipoPorSerie,
+                'coincidencia' => 'numero_serie',
+            ];
         }
 
         return null;

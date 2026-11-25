@@ -138,11 +138,24 @@ class DatosOperativosDemoSeeder extends Seeder
             ]
         );
 
-        // 5. Equipos iniciales
+        // 5. Equipos iniciales (formato unificado PREFIJO-MARCA3-MODELO-NN)
         $ubicacionLab = $labRedes?->id ?? $ubicacionDefecto;
 
+        $equivalencias = [
+            'EQ-LNV-T14-01' => 'EQ-NB-LNV-T14-01',
+            'EQ-LNV-T14-02' => 'EQ-NB-LNV-T14-02',
+            'EQ-CSC-2960-01' => 'EQ-SW-CSC-2960-01',
+            'EQ-TEK-1052-01' => 'EQ-OSC-TEK-1052-01',
+        ];
+        foreach ($equivalencias as $viejo => $nuevo) {
+            $eqExistente = Equipo::where('codigo_barras', $viejo)->first();
+            if ($eqExistente && ! Equipo::where('codigo_barras', $nuevo)->exists()) {
+                $eqExistente->update(['codigo_barras' => $nuevo]);
+            }
+        }
+
         Equipo::firstOrCreate(
-            ['codigo_barras' => 'EQ-LNV-T14-01'],
+            ['codigo_barras' => 'EQ-NB-LNV-T14-01'],
             [
                 'nombre' => 'Notebook Lenovo ThinkPad T14',
                 'marca' => 'Lenovo',
@@ -155,7 +168,7 @@ class DatosOperativosDemoSeeder extends Seeder
         );
 
         Equipo::firstOrCreate(
-            ['codigo_barras' => 'EQ-LNV-T14-02'],
+            ['codigo_barras' => 'EQ-NB-LNV-T14-02'],
             [
                 'nombre' => 'Notebook Lenovo ThinkPad T14',
                 'marca' => 'Lenovo',
@@ -168,10 +181,10 @@ class DatosOperativosDemoSeeder extends Seeder
         );
 
         Equipo::firstOrCreate(
-            ['codigo_barras' => 'EQ-CSC-2960-01'],
+            ['codigo_barras' => 'EQ-SW-CSC-2960-01'],
             [
-                'nombre' => 'Switch Cisco Catalyst Capa 3',
-                'marca' => 'Cisco',
+                'nombre' => 'Switch Cisco Catalyst Capa 3 24 Puertos',
+                'marca' => 'Cisco Systems',
                 'modelo' => 'Catalyst 2960X-24TD-L',
                 'numero_serie' => 'SN-CSC-2960-001',
                 'criticidad' => 'alta',
@@ -181,9 +194,9 @@ class DatosOperativosDemoSeeder extends Seeder
         );
 
         Equipo::firstOrCreate(
-            ['codigo_barras' => 'EQ-TEK-1052-01'],
+            ['codigo_barras' => 'EQ-OSC-TEK-1052-01'],
             [
-                'nombre' => 'Osciloscopio Digital 2 Canales',
+                'nombre' => 'Osciloscopio Digital 2 Canales 50MHz',
                 'marca' => 'Tektronix',
                 'modelo' => 'TBS1052B-EDU',
                 'numero_serie' => 'SN-TEK-1052-001',

@@ -2,9 +2,15 @@
 
 namespace App\Services;
 
+use App\Models\BajaReemplazo;
+use App\Models\Compra;
+use App\Models\DetalleSolicitud;
 use App\Models\Devolucion;
 use App\Models\Entrega;
+use App\Models\Equipo;
 use App\Models\Falla;
+use App\Models\Mantenimiento;
+use App\Models\Presupuesto;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -210,6 +216,142 @@ class DashboardMetricasService
             'horas' => $distribucion,
             'maximo' => $maximo,
             'total_entregas' => $totalEntregas,
+        ];
+    }
+
+    /**
+     * Obtiene contadores generales de actividad en pañol para el período indicado.
+     *
+     * @return array{
+     *     total_prestamos: int,
+     *     total_fallas: int,
+     *     total_insumos_consumidos: float
+     * }
+     */
+    public function obtenerResumenGeneral(?string $periodo = '30_dias'): array
+    {
+        $fechaDesde = $this->resolverFechaDesde($periodo);
+
+        $totalPrestamos = Entrega::when($fechaDesde, function ($q) use ($fechaDesde) {
+            $q->where('fecha_entrega', '>=', $fechaDesde);
+        })->count();
+
+        $totalFallas = Falla::when($fechaDesde, function ($q) use ($fechaDesde) {
+            $q->where('fecha_reporte', '>=', $fechaDesde);
+        })->count();
+
+        $totalInsumosConsumidos = (float) DetalleSolicitud::whereNotNull('insumo_id')
+            ->when($fechaDesde, function ($q) use ($fechaDesde) {
+                $q->where('created_at', '>=', $fechaDesde);
+            })
+            ->sum('cantidad_entregada');
+
+        return [
+            'total_prestamos' => $totalPrestamos,
+            'total_fallas' => $totalFallas,
+            'total_insumos_consumidos' => $totalInsumosConsumidos,
+        ];
+    }
+
+    /**
+     * Obtiene resumen de mantenimientos, bajas/reemplazos y estado actual de flota de equipos.
+     *
+     * @return array{
+     *     mantenimientos_preventivos: int,
+     *     mantenimientos_correctivos: int,
+     *     mantenimientos_realizados: int,
+     *     mantenimientos_pendientes: int,
+     *     bajas_propuestas: int,
+     *     bajas_aprobadas: int,
+     *     equipos_activos: int,
+     *     equipos_en_mantenimiento: int
+     * }
+     */
+    public function obtenerResumenMantenimientosYBajas(?string $periodo = '30_dias'): array
+    {
+        $fechaDesde = $this->resolverFechaDesde($periodo);
+
+        $mantenimientosBase = Mantenimiento::when($fechaDesde, function ($q) use ($fechaDesde) {
+            $q->where('fecha_programada', '>=', $fechaDesde->toDateString());
+        });
+
+        $bajasBase = BajaReemplazo::when($fechaDesde, function ($q) use ($fechaDesde) {
+            $q->where('fecha', '>=', $fechaDesde->toDateString());
+        });
+
+        return [
+            'mantenimientos_preventivos' => (clone $mantenimientosBase)->where('tipo', 'preventivo')->count(),
+            'mantenimientos_correctivos' => (clone $mantenimientosBase)->where('tipo', 'correctivo')->count(),
+            'mantenimientos_realizados' => (clone $mantenimientosBase)->where('estado', 'realizado')->count(),
+            'mantenimientos_pendientes' => (clone $mantenimientosBase)->whereIn('estado', ['programado', 'en_proceso', 'vencido'])->count(),
+            'bajas_propuestas' => (clone $bajasBase)->where('estado', 'propuesta')->count(),
+            'bajas_aprobadas' => (clone $bajasBase)->where('estado', 'aprobada')->count(),
+            'equipos_activos' => Equipo::whereIn('estado', ['disponible', 'prestado'])->count(),
+            'equipos_en_mantenimiento' => Equipo::where('estado', 'en_mantenimiento')->count(),
+        ];
+    }
+
+    /**
+     * Obtiene ejecución presupuestaria por carrera para el año vigente y compras registradas en el período.
+     *
+     * @return array{
+     *     anio: int,
+     *     total_asignado: float,
+     *     total_saldo: float,
+     *     total_ejecutado: float,
+     *     porcentaje_ejecutado: float,
+     *     total_compras_periodo: int,
+     *     monto_compras_periodo: float,
+     *     carreras: Collection
+     * }
+     */
+    public function obtenerMetricasPresupuestosYCompras(?string $periodo = '30_dias', ?int $anio = null): array
+    {
+        $anioVigente = $anio ?? (int) now()->year;
+        $fechaDesde = $this->resolverFechaDesde($periodo);
+
+        $presupuestos = Presupuesto::with('carrera:id,codigo,nombre,activa')
+            ->where('anio', $anioVigente)
+            ->orderByDesc('monto_asignado')
+            ->get()
+            ->map(function (Presupuesto $presupuesto): array {
+                $asignado = (float) $presupuesto->monto_asignado;
+                $saldo = (float) $presupuesto->saldo_actual;
+                $ejecutado = max(0.0, $asignado - $saldo);
+                $porcentaje = $asignado > 0 ? round(($ejecutado / $asignado) * 100, 1) : 0.0;
+
+                return [
+                    'carrera_nombre' => $presupuesto->carrera?->nombre ?? 'Carrera sin nombre',
+                    'carrera_codigo' => $presupuesto->carrera?->codigo ?? '-',
+                    'monto_asignado' => $asignado,
+                    'saldo_actual' => $saldo,
+                    'monto_ejecutado' => $ejecutado,
+                    'porcentaje_ejecutado' => min(100.0, $porcentaje),
+                ];
+            });
+
+        $totalAsignado = (float) $presupuestos->sum('monto_asignado');
+        $totalSaldo = (float) $presupuestos->sum('saldo_actual');
+        $totalEjecutado = max(0.0, $totalAsignado - $totalSaldo);
+        $porcentajeGlobal = $totalAsignado > 0 ? round(($totalEjecutado / $totalAsignado) * 100, 1) : 0.0;
+
+        $comprasQuery = Compra::where('estado', '!=', 'anulada')
+            ->when($fechaDesde, function ($q) use ($fechaDesde) {
+                $q->where('fecha', '>=', $fechaDesde->toDateString());
+            });
+
+        $totalComprasPeriodo = (clone $comprasQuery)->count();
+        $montoComprasPeriodo = (float) (clone $comprasQuery)->sum('monto_total');
+
+        return [
+            'anio' => $anioVigente,
+            'total_asignado' => $totalAsignado,
+            'total_saldo' => $totalSaldo,
+            'total_ejecutado' => $totalEjecutado,
+            'porcentaje_ejecutado' => min(100.0, $porcentajeGlobal),
+            'total_compras_periodo' => $totalComprasPeriodo,
+            'monto_compras_periodo' => $montoComprasPeriodo,
+            'carreras' => $presupuestos,
         ];
     }
 

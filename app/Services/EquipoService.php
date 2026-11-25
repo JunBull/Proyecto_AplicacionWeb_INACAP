@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Categoria;
 use App\Models\Documento;
 use App\Models\Equipo;
+use App\Models\Subcategoria;
 use App\Models\Ubicacion;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
@@ -64,6 +65,8 @@ class EquipoService
      *     criticidad?: 'alta'|'media'|'baja',
      *     ubicacion_id: int,
      *     categoria_id?: int|null,
+     *     subcategoria_id?: int|null,
+     *     etiqueta_impresa?: bool,
      *     compra_id?: int|null,
      *     fotografia?: string|UploadedFile|null,
      *     fecha_adquisicion?: string|null,
@@ -86,7 +89,14 @@ class EquipoService
                 $rutaFoto = trim($archivoFoto);
             }
 
+            $subcategoriaId = isset($datos['subcategoria_id']) && $datos['subcategoria_id'] !== ''
+                ? (int) $datos['subcategoria_id']
+                : null;
+
             $categoriaId = $datos['categoria_id'] ?? null;
+            if (! $categoriaId && $subcategoriaId) {
+                $categoriaId = Subcategoria::where('id', $subcategoriaId)->value('categoria_id');
+            }
             if (! $categoriaId && Categoria::exists()) {
                 $categoriaId = Categoria::where('slug', 'computo-movil')->value('id') ?? Categoria::first()?->id;
             }
@@ -110,6 +120,8 @@ class EquipoService
                 'criticidad' => $criticidad,
                 'ubicacion_id' => $datos['ubicacion_id'],
                 'categoria_id' => $categoriaId,
+                'subcategoria_id' => $subcategoriaId,
+                'etiqueta_impresa' => (bool) ($datos['etiqueta_impresa'] ?? false),
                 'compra_id' => $datos['compra_id'] ?? null,
                 'fotografia' => $rutaFoto,
                 'fecha_adquisicion' => $datos['fecha_adquisicion'] ?? now()->toDateString(),
@@ -129,7 +141,7 @@ class EquipoService
                 'creado_en' => now(),
             ]);
 
-            return $equipo->fresh(['ubicacion', 'categoria', 'documentos']);
+            return $equipo->fresh(['ubicacion', 'categoria', 'subcategoria', 'documentos']);
         });
     }
 
@@ -146,6 +158,23 @@ class EquipoService
             ]);
         }
 
+        if (isset($datos['numero_serie'])) {
+            $serieLimpia = trim((string) $datos['numero_serie']);
+            if ($serieLimpia === '') {
+                throw ValidationException::withMessages([
+                    'numero_serie' => 'El número de serie de fábrica es obligatorio.',
+                ]);
+            }
+            $existeSerie = Equipo::whereRaw('LOWER(numero_serie) = ?', [mb_strtolower($serieLimpia)])
+                ->where('id', '!=', $equipo->id)
+                ->exists();
+            if ($existeSerie) {
+                throw ValidationException::withMessages([
+                    'numero_serie' => 'El número de serie ya se encuentra registrado en el sistema.',
+                ]);
+            }
+        }
+
         if (isset($datos['ubicacion_id']) && ! Ubicacion::where('id', $datos['ubicacion_id'])->exists()) {
             throw ValidationException::withMessages([
                 'ubicacion_id' => 'La ubicación especificada no es válida.',
@@ -156,6 +185,21 @@ class EquipoService
             throw ValidationException::withMessages([
                 'categoria_id' => 'La categoría especificada no es válida.',
             ]);
+        }
+
+        if (isset($datos['subcategoria_id']) && $datos['subcategoria_id'] !== null) {
+            $sub = Subcategoria::find($datos['subcategoria_id']);
+            if (! $sub) {
+                throw ValidationException::withMessages([
+                    'subcategoria_id' => 'La subcategoría especificada no es válida.',
+                ]);
+            }
+            $catObjetivo = $datos['categoria_id'] ?? $equipo->categoria_id;
+            if ($catObjetivo && (int) $sub->categoria_id !== (int) $catObjetivo) {
+                throw ValidationException::withMessages([
+                    'subcategoria_id' => 'La subcategoría no pertenece a la categoría seleccionada.',
+                ]);
+            }
         }
 
         return DB::transaction(function () use ($equipo, $datos, $usuarioResponsable) {
@@ -179,16 +223,16 @@ class EquipoService
 
             $equipo->update($datos);
 
-            return $equipo->fresh(['ubicacion', 'categoria', 'documentos']);
+            return $equipo->fresh(['ubicacion', 'categoria', 'subcategoria', 'documentos']);
         });
     }
 
     /**
      * Búsqueda de equipos mediante nombre estandarizado, código de barras o número de serie (CP-04).
      */
-    public function buscar(string $termino, ?int $carreraId = null, ?int $categoriaId = null): Collection
+    public function buscar(string $termino, ?int $carreraId = null, ?int $categoriaId = null, ?int $subcategoriaId = null): Collection
     {
-        $query = Equipo::with(['ubicacion.carrera', 'categoria', 'documentos']);
+        $query = Equipo::with(['ubicacion.carrera', 'categoria', 'subcategoria', 'documentos']);
 
         if (trim($termino) !== '') {
             $t = '%'.trim($termino).'%';
@@ -200,6 +244,9 @@ class EquipoService
                     ->orWhere('numero_serie', 'LIKE', $t)
                     ->orWhereHas('categoria', function ($cq) use ($t) {
                         $cq->where('nombre', 'LIKE', $t);
+                    })
+                    ->orWhereHas('subcategoria', function ($sq) use ($t) {
+                        $sq->where('nombre', 'LIKE', $t);
                     });
             });
         }
@@ -214,7 +261,228 @@ class EquipoService
             $query->where('categoria_id', $categoriaId);
         }
 
+        if ($subcategoriaId) {
+            $query->where('subcategoria_id', $subcategoriaId);
+        }
+
         return $query->get();
+    }
+
+    /**
+     * Sugiere el siguiente código de barras correlativo usando el formato unificado
+     * [PREFIJO_SUBCATEGORIA]-[MARCA_3]-[MODELO_CORTO]-[NN].
+     */
+    public function sugerirCodigoBarrasPorSubcategoria(?int $subcategoriaId, ?string $marca = null, ?string $modelo = null): string
+    {
+        $prefijo = $subcategoriaId
+            ? Subcategoria::where('id', $subcategoriaId)->value('codigo_prefijo')
+            : null;
+
+        if (! $prefijo) {
+            return 'EQ-'.strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
+        }
+
+        $marcaCodigo = $this->abreviarMarca($marca);
+        $modeloCodigo = $this->abreviarModelo($modelo);
+
+        $base = ($marcaCodigo !== '' && $modeloCodigo !== '')
+            ? "{$prefijo}-{$marcaCodigo}-{$modeloCodigo}"
+            : $prefijo;
+
+        return $this->siguienteCorrelativoPorBase($base);
+    }
+
+    /**
+     * Obtiene las familias/modelos existentes dentro de una subcategoría para el modal Nuevo Equipo (Escenario A).
+     *
+     * @return \Illuminate\Support\Collection<int, array{
+     *     codigo_base: string,
+     *     nombre: string,
+     *     marca: string,
+     *     modelo: string,
+     *     total_unidades: int,
+     *     siguiente_codigo: string
+     * }>
+     */
+    public function obtenerFamiliasPorSubcategoria(int $subcategoriaId): \Illuminate\Support\Collection
+    {
+        $equipos = Equipo::query()
+            ->where('subcategoria_id', $subcategoriaId)
+            ->whereNotNull('codigo_barras')
+            ->where('codigo_barras', '!=', '')
+            ->orderBy('codigo_barras')
+            ->get();
+
+        return $equipos
+            ->groupBy(function (Equipo $eq): string {
+                $base = preg_replace('/-\d+$/', '', trim((string) $eq->codigo_barras));
+
+                return $base !== null && $base !== '' ? $base : trim((string) $eq->codigo_barras);
+            })
+            ->map(function (Collection $grupo, string $codigoBase): array {
+                /** @var Equipo $primero */
+                $primero = $grupo->first();
+
+                return [
+                    'codigo_base' => $codigoBase,
+                    'nombre' => $primero->nombre,
+                    'marca' => $primero->marca,
+                    'modelo' => $primero->modelo,
+                    'total_unidades' => $grupo->count(),
+                    'siguiente_codigo' => $this->siguienteCorrelativoPorBase($codigoBase),
+                ];
+            })
+            ->sortBy('codigo_base')
+            ->values();
+    }
+
+    /**
+     * Calcula el siguiente código correlativo disponible (-01, -02...) para una familia base.
+     */
+    public function siguienteCorrelativoPorBase(string $codigoBase): string
+    {
+        $baseLimpia = rtrim(strtoupper(trim($codigoBase)), '-');
+
+        $codigosExistentes = Equipo::where('codigo_barras', 'LIKE', $baseLimpia.'-%')
+            ->pluck('codigo_barras');
+
+        $maxCorrelativo = 0;
+        $patron = '/^'.preg_quote($baseLimpia, '/').'-(\d+)$/i';
+        foreach ($codigosExistentes as $codigo) {
+            if (preg_match($patron, (string) $codigo, $matches)) {
+                $maxCorrelativo = max($maxCorrelativo, (int) $matches[1]);
+            }
+        }
+
+        $siguiente = $maxCorrelativo + 1;
+        $candidato = sprintf('%s-%02d', $baseLimpia, $siguiente);
+        while (Equipo::where('codigo_barras', $candidato)->exists()) {
+            $siguiente++;
+            $candidato = sprintf('%s-%02d', $baseLimpia, $siguiente);
+        }
+
+        return $candidato;
+    }
+
+    /**
+     * Construye el código completo para un modelo nuevo combinando el prefijo fijo de subcategoría y el sufijo ingresado (Escenario B).
+     */
+    public function construirCodigoDesdePrefijo(string $prefijoSubcategoria, string $sufijoManual): string
+    {
+        $prefijo = rtrim(strtoupper(trim($prefijoSubcategoria)), '-');
+        $sufijo = strtoupper(trim(iconv('UTF-8', 'ASCII//TRANSLIT', $sufijoManual) ?: $sufijoManual));
+        $sufijo = preg_replace('/[\s_]+/', '-', $sufijo) ?? '';
+        $sufijo = preg_replace('/[^A-Z0-9\-]/', '', $sufijo) ?? '';
+        $sufijo = preg_replace('/-+/', '-', $sufijo) ?? '';
+        $sufijo = trim($sufijo, '-');
+
+        if ($prefijo !== '' && str_starts_with($sufijo, $prefijo.'-')) {
+            $sufijo = substr($sufijo, strlen($prefijo) + 1);
+        }
+        $sufijo = preg_replace('/-\d+$/', '', $sufijo) ?? $sufijo;
+        $sufijo = trim($sufijo, '-');
+
+        if ($sufijo === '') {
+            return '';
+        }
+
+        $base = $prefijo !== '' ? "{$prefijo}-{$sufijo}" : $sufijo;
+
+        return $this->siguienteCorrelativoPorBase($base);
+    }
+
+    protected function abreviarMarca(?string $marca): string
+    {
+        $limpia = strtolower(trim((string) $marca));
+        if ($limpia === '') {
+            return '';
+        }
+
+        $aliases = [
+            'lenovo' => 'LNV',
+            'apple' => 'APL',
+            'dell' => 'DEL',
+            'samsung' => 'SAM',
+            'wacom' => 'WAC',
+            'huion' => 'HUI',
+            'cisco' => 'CSC',
+            'aruba' => 'ARU',
+            'mikrotik' => 'MIK',
+            'ubiquiti' => 'UBI',
+            'fortinet' => 'FTN',
+            'grandstream' => 'GRD',
+            'fluke' => 'FLK',
+            'tektronix' => 'TEK',
+            'rigol' => 'RIG',
+            'uni-t' => 'UNI',
+            'korad' => 'KOR',
+            'siglent' => 'SIG',
+            'arduino' => 'ARD',
+            'espressif' => 'ESP',
+            'raspberry' => 'RPI',
+            'nvidia' => 'NVD',
+            'intel' => 'INT',
+            'hiwonder' => 'HIW',
+            'makeblock' => 'MOD',
+            'zebra' => 'ZEB',
+            'brother' => 'BRO',
+            'creality' => 'CRE',
+            'bambu' => 'BMB',
+            'honeywell' => 'HON',
+            'epson' => 'EPS',
+            'viewsonic' => 'VWS',
+            'logitech' => 'LOG',
+            'meta' => 'MET',
+            'htc' => 'HTC',
+            'edifier' => 'EDF',
+            'rode' => 'ROD',
+            'sumitomo' => 'SUM',
+            'tp-link' => 'TPL',
+            'towerpro' => 'TOW',
+            'dji' => 'DJI',
+            'genérico' => 'GEN',
+            'generico' => 'GEN',
+        ];
+
+        foreach ($aliases as $clave => $codigo) {
+            if (str_contains($limpia, $clave)) {
+                return $codigo;
+            }
+        }
+
+        $soloLetras = preg_replace('/[^A-Z0-9]/', '', strtoupper(iconv('UTF-8', 'ASCII//TRANSLIT', $limpia) ?: $limpia));
+
+        return substr((string) $soloLetras, 0, 3);
+    }
+
+    protected function abreviarModelo(?string $modelo): string
+    {
+        $limpia = trim((string) $modelo);
+        if ($limpia === '') {
+            return '';
+        }
+
+        $tokens = preg_split('/[\s\/\-_]+/', strtoupper(iconv('UTF-8', 'ASCII//TRANSLIT', $limpia) ?: $limpia)) ?: [];
+        $ignorados = ['GEN', 'PRO', 'HD', 'WIFI', 'GB', 'RAM', 'PLUS', 'COMBO', 'SE', 'V2', 'V3', 'REV3', 'REV', '2D', '1D', 'QR'];
+
+        foreach ($tokens as $token) {
+            $t = preg_replace('/[^A-Z0-9]/', '', $token) ?? '';
+            if ($t === '' || in_array($t, $ignorados, true)) {
+                continue;
+            }
+            if (preg_match('/\d/', $t) && strlen($t) >= 2 && ! preg_match('/^\d+(TH|ST|ND|RD|MA|VA)$/', $t)) {
+                return substr($t, 0, 4);
+            }
+        }
+
+        foreach ($tokens as $token) {
+            $t = preg_replace('/[^A-Z0-9]/', '', $token) ?? '';
+            if ($t !== '' && ! in_array($t, $ignorados, true)) {
+                return substr($t, 0, 4);
+            }
+        }
+
+        return '';
     }
 
     /**
@@ -248,8 +516,10 @@ class EquipoService
             $errores['modelo'] = 'El modelo del equipo es obligatorio.';
         }
 
-        if (empty($datos['numero_serie']) || trim($datos['numero_serie']) === '') {
+        if (empty($datos['numero_serie']) || trim((string) $datos['numero_serie']) === '') {
             $errores['numero_serie'] = 'El número de serie de fábrica es obligatorio.';
+        } elseif (Equipo::whereRaw('LOWER(numero_serie) = ?', [mb_strtolower(trim((string) $datos['numero_serie']))])->exists()) {
+            $errores['numero_serie'] = 'El número de serie ya se encuentra registrado en el sistema.';
         }
 
         if (empty($datos['ubicacion_id']) || ! Ubicacion::where('id', $datos['ubicacion_id'])->exists()) {
@@ -258,6 +528,15 @@ class EquipoService
 
         if (isset($datos['categoria_id']) && $datos['categoria_id'] !== null && ! Categoria::where('id', $datos['categoria_id'])->exists()) {
             $errores['categoria_id'] = 'La categoría seleccionada no es válida.';
+        }
+
+        if (isset($datos['subcategoria_id']) && $datos['subcategoria_id'] !== null && $datos['subcategoria_id'] !== '') {
+            $subcategoria = Subcategoria::find($datos['subcategoria_id']);
+            if (! $subcategoria) {
+                $errores['subcategoria_id'] = 'La subcategoría seleccionada no es válida.';
+            } elseif (! empty($datos['categoria_id']) && (int) $subcategoria->categoria_id !== (int) $datos['categoria_id']) {
+                $errores['subcategoria_id'] = 'La subcategoría seleccionada no pertenece a la categoría indicada.';
+            }
         }
 
         if (isset($datos['fotografia']) && $datos['fotografia'] instanceof UploadedFile) {

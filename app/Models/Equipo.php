@@ -26,6 +26,9 @@ class Equipo extends Model
         'reservado_clases',
         'ubicacion_id',
         'categoria_id',
+        'subcategoria_id',
+        'etiqueta_impresa',
+        'etiqueta_impresa_en',
         'compra_id',
         'fotografia',
         'fecha_adquisicion',
@@ -37,6 +40,8 @@ class Equipo extends Model
             'fecha_adquisicion' => 'date',
             'reservado_clases' => 'boolean',
             'requiere_calibracion' => 'boolean',
+            'etiqueta_impresa' => 'boolean',
+            'etiqueta_impresa_en' => 'datetime',
         ];
     }
 
@@ -48,6 +53,11 @@ class Equipo extends Model
     public function categoria(): BelongsTo
     {
         return $this->belongsTo(Categoria::class, 'categoria_id');
+    }
+
+    public function subcategoria(): BelongsTo
+    {
+        return $this->belongsTo(Subcategoria::class, 'subcategoria_id');
     }
 
     public function compra(): BelongsTo

@@ -4,16 +4,29 @@
             
             <!-- Banner de Bienvenida -->
             <div class="bg-gradient-to-r from-red-800 to-red-950 rounded-2xl p-6 sm:p-8 text-white shadow-lg relative overflow-hidden">
-                <div class="relative z-10 max-w-2xl">
-                    <span class="text-xs font-bold uppercase tracking-wider text-red-200 bg-white/10 px-3 py-1 rounded-full border border-white/15">
-                        Bienvenido(a) al Sistema
-                    </span>
-                    <h2 class="text-2xl sm:text-3xl font-extrabold mt-3 tracking-tight">
-                        Hola, {{ auth()->user()->name }}
-                    </h2>
-                    <p class="mt-2 text-sm sm:text-base text-red-100/90 leading-relaxed">
-                        Accede a los módulos autorizados para gestionar materiales, activos y trazabilidad operativa de laboratorios.
-                    </p>
+                <div class="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div class="max-w-2xl">
+                        <span class="text-xs font-bold uppercase tracking-wider text-red-200 bg-white/10 px-3 py-1 rounded-full border border-white/15">
+                            Bienvenido(a) al Sistema
+                        </span>
+                        <h2 class="text-2xl sm:text-3xl font-extrabold mt-3 tracking-tight">
+                            Hola, {{ auth()->user()->name }}
+                        </h2>
+                        <p class="mt-2 text-sm sm:text-base text-red-100/90 leading-relaxed">
+                            Accede a los módulos autorizados para gestionar materiales, activos y trazabilidad operativa de laboratorios.
+                        </p>
+                    </div>
+                    @if(auth()->user()->rol === 'administrador')
+                        <div class="shrink-0">
+                            <a href="{{ route('admin.metricas') }}" wire:navigate class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white text-red-800 hover:bg-red-50 text-xs font-bold shadow-sm transition focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-red-900">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                </svg>
+                                <span>Ver Métricas</span>
+                                <span>&rarr;</span>
+                            </a>
+                        </div>
+                    @endif
                 </div>
                 <div class="absolute right-0 bottom-0 top-0 w-1/3 opacity-10 pointer-events-none hidden md:block">
                     <x-application-logo class="h-full w-full object-contain" />
@@ -65,363 +78,6 @@
                             <span class="mt-4 inline-flex items-center text-xs font-semibold text-amber-700 group-hover:translate-x-1 transition">
                                 Reportar novedad &rarr;
                             </span>
-                        </a>
-                    </div>
-                </div>
-            @elseif(auth()->user()->rol === 'administrador')
-                @php
-                    $periodo = request()->query('periodo', '30_dias');
-                    $metricasService = app(\App\Services\DashboardMetricasService::class);
-                    $puntualidad = $metricasService->obtenerMetricasPuntualidadEstudiantes($periodo);
-                    $topFallas = $metricasService->obtenerTopEquiposConFallas(5, $periodo);
-                    $topMateriales = $metricasService->obtenerTopMateriales(5, $periodo);
-                    $distribucionHoraria = $metricasService->obtenerDistribucionHoraria($periodo);
-
-                    $fechaDesde = match ($periodo) {
-                        '30_dias' => now()->subDays(30),
-                        'semestre' => now()->subMonths(6),
-                        'anio' => now()->subYear(),
-                        default => null,
-                    };
-
-                    $totalPrestamos = \App\Models\Entrega::when($fechaDesde, fn($q) => $q->where('fecha_entrega', '>=', $fechaDesde))->count();
-                    $totalFallas = \App\Models\Falla::when($fechaDesde, fn($q) => $q->where('fecha_reporte', '>=', $fechaDesde))->count();
-                    $totalInsumosConsumidos = (float) \App\Models\DetalleSolicitud::whereNotNull('insumo_id')
-                        ->when($fechaDesde, fn($q) => $q->where('created_at', '>=', $fechaDesde))
-                        ->sum('cantidad_entregada');
-                @endphp
-
-                <!-- Filtro de Período y Cabecera del Panel -->
-                <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
-                    <div>
-                        <div class="flex items-center gap-2">
-                            <span class="w-2.5 h-2.5 rounded-full bg-red-600 animate-pulse"></span>
-                            <h2 class="text-base font-bold text-slate-900">
-                                Panel de Métricas y Trazabilidad Operativa
-                            </h2>
-                        </div>
-                        <p class="text-xs text-slate-500 mt-0.5">
-                            Indicadores estratégicos calculados en tiempo real sobre préstamos, puntualidad estudiantil y averías.
-                        </p>
-                    </div>
-
-                    <!-- Selector de Período -->
-                    <div class="inline-flex rounded-xl p-1 bg-slate-100 border border-slate-200 text-xs font-semibold">
-                        <a href="{{ route('dashboard', ['periodo' => '30_dias']) }}" class="px-3 py-1.5 rounded-lg transition {{ $periodo === '30_dias' ? 'bg-white text-red-700 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900' }}">
-                            Últimos 30 días
-                        </a>
-                        <a href="{{ route('dashboard', ['periodo' => 'semestre']) }}" class="px-3 py-1.5 rounded-lg transition {{ $periodo === 'semestre' ? 'bg-white text-red-700 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900' }}">
-                            Último Semestre
-                        </a>
-                        <a href="{{ route('dashboard', ['periodo' => 'historico']) }}" class="px-3 py-1.5 rounded-lg transition {{ $periodo === 'historico' ? 'bg-white text-red-700 shadow-xs font-bold' : 'text-slate-600 hover:text-slate-900' }}">
-                            Histórico Completo
-                        </a>
-                    </div>
-                </div>
-
-                <!-- 4 Tarjetas KPI -->
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <!-- KPI 1: % Puntualidad Estudiantil -->
-                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
-                        <div class="flex items-center justify-between">
-                            <span class="text-xs font-bold uppercase tracking-wider text-slate-500">Puntualidad Estudiantes</span>
-                            <div class="w-8 h-8 rounded-lg {{ $puntualidad['porcentaje_a_tiempo'] >= 90 ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700' }} flex items-center justify-center">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                            </div>
-                        </div>
-                        <div class="mt-3">
-                            <div class="flex items-baseline gap-2">
-                                <span class="text-3xl font-extrabold tracking-tight {{ $puntualidad['porcentaje_a_tiempo'] >= 90 ? 'text-emerald-700' : 'text-amber-700' }}">
-                                    {{ number_format($puntualidad['porcentaje_a_tiempo'], 1) }}%
-                                </span>
-                                <span class="text-xs font-semibold text-slate-500">a tiempo</span>
-                            </div>
-                            <div class="mt-2 text-xs text-slate-600 flex justify-between border-t border-slate-100 pt-2">
-                                <span>{{ $puntualidad['a_tiempo'] }} a la hora</span>
-                                <span class="text-rose-600 font-semibold">{{ $puntualidad['con_retraso'] }} atrasadas</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- KPI 2: Total Préstamos -->
-                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
-                        <div class="flex items-center justify-between">
-                            <span class="text-xs font-bold uppercase tracking-wider text-slate-500">Préstamos en Ventanilla</span>
-                            <div class="w-8 h-8 rounded-lg bg-blue-50 text-blue-700 flex items-center justify-center">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                                </svg>
-                            </div>
-                        </div>
-                        <div class="mt-3">
-                            <div class="text-3xl font-extrabold tracking-tight text-slate-900">
-                                {{ number_format($totalPrestamos, 0, ',', '.') }}
-                            </div>
-                            <p class="text-xs text-slate-500 mt-2 border-t border-slate-100 pt-2">
-                                Atenciones registradas de pañol
-                            </p>
-                        </div>
-                    </div>
-
-                    <!-- KPI 3: Total Fallas -->
-                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
-                        <div class="flex items-center justify-between">
-                            <span class="text-xs font-bold uppercase tracking-wider text-slate-500">Fallas / Averías</span>
-                            <div class="w-8 h-8 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                                </svg>
-                            </div>
-                        </div>
-                        <div class="mt-3">
-                            <div class="text-3xl font-extrabold tracking-tight text-slate-900">
-                                {{ number_format($totalFallas, 0, ',', '.') }}
-                            </div>
-                            <p class="text-xs text-slate-500 mt-2 border-t border-slate-100 pt-2">
-                                Reportes técnicos en instrumental
-                            </p>
-                        </div>
-                    </div>
-
-                    <!-- KPI 4: Retrasos Activos en Tiempo Real -->
-                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
-                        <div class="flex items-center justify-between">
-                            <span class="text-xs font-bold uppercase tracking-wider text-slate-500">Mora Activa en Pañol</span>
-                            <div class="w-8 h-8 rounded-lg {{ $puntualidad['retrasos_activos'] > 0 ? 'bg-rose-100 text-rose-700' : 'bg-emerald-50 text-emerald-700' }} flex items-center justify-center">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                            </div>
-                        </div>
-                        <div class="mt-3">
-                            <div class="text-3xl font-extrabold tracking-tight {{ $puntualidad['retrasos_activos'] > 0 ? 'text-rose-700' : 'text-emerald-700' }}">
-                                {{ $puntualidad['retrasos_activos'] }}
-                            </div>
-                            <p class="text-xs text-slate-500 mt-2 border-t border-slate-100 pt-2">
-                                {{ $puntualidad['retrasos_activos'] > 0 ? 'Alumnos con hora cumplida sin devolver' : 'Sin préstamos en mora actualmente' }}
-                            </p>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Gráfico de Demanda Horaria (En qué horas se piden más cosas) -->
-                <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
-                    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
-                        <div>
-                            <h3 class="text-sm font-bold text-slate-900 flex items-center gap-2">
-                                <svg class="w-4 h-4 text-red-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                </svg>
-                                ¿En qué horas se piden más cosas? Distribución de Demanda en Ventanilla
-                            </h3>
-                            <p class="text-xs text-slate-500">
-                                Salidas de materiales y atenciones horarias entre 08:00 y 21:00 hrs.
-                            </p>
-                        </div>
-                        <div class="flex items-center gap-4 text-xs">
-                            <span class="inline-flex items-center gap-1.5 text-slate-600">
-                                <span class="w-3 h-3 rounded-sm bg-slate-200"></span> Normal
-                            </span>
-                            <span class="inline-flex items-center gap-1.5 text-red-700 font-semibold">
-                                <span class="w-3 h-3 rounded-sm bg-red-600"></span> Horas Punta (Mayor Afluencia)
-                            </span>
-                        </div>
-                    </div>
-
-                    <!-- Barras de Distribución Horaria -->
-                    <div class="pt-6 pb-2">
-                        <div class="grid grid-cols-7 sm:grid-cols-14 gap-2 items-end h-48">
-                            @foreach($distribucionHoraria['horas'] as $item)
-                                <div class="flex flex-col items-center h-full justify-end group">
-                                    <!-- Tooltip / Total encima de barra -->
-                                    <span class="text-[11px] font-bold text-slate-600 group-hover:text-red-700 transition mb-1 {{ $item['es_punta'] ? 'text-red-700 font-extrabold' : '' }}">
-                                        {{ $item['total'] }}
-                                    </span>
-                                    <!-- Barra -->
-                                    <div class="w-full rounded-t-lg transition-all duration-300 {{ $item['es_punta'] ? 'bg-red-600 group-hover:bg-red-700 shadow-sm' : 'bg-slate-200 group-hover:bg-slate-300' }}"
-                                         style="height: {{ max(6, $item['porcentaje']) }}%; min-height: 8px;">
-                                    </div>
-                                    <!-- Hora debajo de la barra -->
-                                    <span class="text-[10px] font-semibold text-slate-500 mt-2 truncate">
-                                        {{ $item['hora_num'] }}:00
-                                    </span>
-                                    @if($item['es_punta'])
-                                        <span class="text-[9px] font-bold text-red-700 uppercase tracking-tighter mt-0.5">
-                                            Peak
-                                        </span>
-                                    @endif
-                                </div>
-                            @endforeach
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Fila de Rankings: Equipos con más fallas vs Materiales más solicitados -->
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <!-- 1. Equipos que más fallan -->
-                    <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between space-y-4">
-                        <div>
-                            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
-                                <div class="flex items-center gap-2">
-                                    <div class="w-7 h-7 rounded-lg bg-amber-50 text-amber-700 flex items-center justify-center">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                                        </svg>
-                                    </div>
-                                    <div>
-                                        <h3 class="text-sm font-bold text-slate-900">Equipos que Más Fallan</h3>
-                                        <p class="text-xs text-slate-500">Activos con mayor historial de averías reportadas.</p>
-                                    </div>
-                                </div>
-                                <a href="{{ route('panol.mantenimientos') }}" class="text-xs font-bold text-red-700 hover:text-red-900" wire:navigate>
-                                    Mantenimientos &rarr;
-                                </a>
-                            </div>
-
-                            <div class="mt-4 divide-y divide-slate-100">
-                                @forelse($topFallas as $fallaItem)
-                                    <div class="py-3 flex items-center justify-between gap-3">
-                                        <div class="min-w-0">
-                                            <div class="font-bold text-xs text-slate-900 truncate">
-                                                {{ $fallaItem->equipo?->nombre ?? 'Equipo no identificado' }}
-                                            </div>
-                                            <div class="text-[11px] text-slate-500 mt-0.5">
-                                                <span>{{ $fallaItem->equipo?->marca }} {{ $fallaItem->equipo?->modelo }}</span>
-                                                <span class="mx-1">&bull;</span>
-                                                <span class="font-mono text-[10px]">{{ $fallaItem->equipo?->codigo_barras }}</span>
-                                            </div>
-                                        </div>
-                                        <div class="flex items-center gap-2 shrink-0">
-                                            <span class="px-2.5 py-1 rounded-full text-xs font-extrabold bg-amber-100 text-amber-800 border border-amber-200">
-                                                {{ $fallaItem->total_fallas }} {{ $fallaItem->total_fallas == 1 ? 'falla' : 'fallas' }}
-                                            </span>
-                                        </div>
-                                    </div>
-                                @empty
-                                    <div class="py-8 text-center text-xs text-slate-400">
-                                        No hay fallas técnicas registradas en este período.
-                                    </div>
-                                @endforelse
-                            </div>
-                        </div>
-
-                        <div class="pt-3 border-t border-slate-100 text-right">
-                            <a href="{{ route('admin.bajas') }}" class="text-xs font-semibold text-slate-600 hover:text-red-700" wire:navigate>
-                                Consultar expediente de bajas técnicas &rarr;
-                            </a>
-                        </div>
-                    </div>
-
-                    <!-- 2. Equipos e Insumos más solicitados -->
-                    <div class="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between space-y-4" x-data="{ tab: 'equipos' }">
-                        <div>
-                            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
-                                <div>
-                                    <h3 class="text-sm font-bold text-slate-900">Materiales Más Solicitados</h3>
-                                    <p class="text-xs text-slate-500">Demanda de instrumental y rotación de consumibles.</p>
-                                </div>
-                                <div class="inline-flex rounded-lg p-0.5 bg-slate-100 text-[11px] font-semibold">
-                                    <button
-                                        type="button"
-                                        @click="tab = 'equipos'"
-                                        :class="tab === 'equipos' ? 'bg-white text-red-700 shadow-2xs font-bold' : 'text-slate-600'"
-                                        class="px-2.5 py-1 rounded-md transition"
-                                    >
-                                        Equipos
-                                    </button>
-                                    <button
-                                        type="button"
-                                        @click="tab = 'insumos'"
-                                        :class="tab === 'insumos' ? 'bg-white text-red-700 shadow-2xs font-bold' : 'text-slate-600'"
-                                        class="px-2.5 py-1 rounded-md transition"
-                                    >
-                                        Insumos
-                                    </button>
-                                </div>
-                            </div>
-
-                            <!-- Pestaña Equipos -->
-                            <div x-show="tab === 'equipos'" class="mt-4 divide-y divide-slate-100">
-                                @forelse($topMateriales['equipos'] as $eqItem)
-                                    <div class="py-3 flex items-center justify-between gap-3">
-                                        <div class="min-w-0">
-                                            <div class="font-bold text-xs text-slate-900 truncate">
-                                                {{ $eqItem->nombre }}
-                                            </div>
-                                            <div class="text-[11px] text-slate-500 mt-0.5">
-                                                {{ $eqItem->marca }} {{ $eqItem->modelo }}
-                                            </div>
-                                        </div>
-                                        <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-800 shrink-0">
-                                            {{ $eqItem->veces_pedido }} {{ $eqItem->veces_pedido == 1 ? 'préstamo' : 'préstamos' }}
-                                        </span>
-                                    </div>
-                                @empty
-                                    <div class="py-8 text-center text-xs text-slate-400">
-                                        No hay solicitudes de equipos en este período.
-                                    </div>
-                                @endforelse
-                            </div>
-
-                            <!-- Pestaña Insumos -->
-                            <div x-show="tab === 'insumos'" style="display: none;" class="mt-4 divide-y divide-slate-100">
-                                @forelse($topMateriales['insumos'] as $insItem)
-                                    <div class="py-3 flex items-center justify-between gap-3">
-                                        <div class="min-w-0">
-                                            <div class="font-bold text-xs text-slate-900 truncate">
-                                                {{ $insItem->nombre }}
-                                            </div>
-                                            <div class="text-[11px] text-slate-500 mt-0.5">
-                                                Consumo acumulado
-                                            </div>
-                                        </div>
-                                        <span class="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 shrink-0">
-                                            {{ (float)$insItem->total_entregado }} {{ $insItem->unidad }}
-                                        </span>
-                                    </div>
-                                @empty
-                                    <div class="py-8 text-center text-xs text-slate-400">
-                                        No hay salidas de insumos en este período.
-                                    </div>
-                                @endforelse
-                            </div>
-                        </div>
-
-                        <div class="pt-3 border-t border-slate-100 text-right">
-                            <a href="{{ route('panol.inventario') }}" class="text-xs font-semibold text-slate-600 hover:text-red-700" wire:navigate>
-                                Ver inventario general &rarr;
-                            </a>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Módulos de Administración Rápida -->
-                <div>
-                    <h3 class="text-base font-bold text-slate-900 mb-3 flex items-center gap-2">
-                        <svg class="w-5 h-5 text-red-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        </svg>
-                        Módulos de Gestión Administrativa
-                    </h3>
-                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                        <a href="{{ route('admin.usuarios') }}" class="p-4 bg-white rounded-xl border border-slate-200/80 shadow-xs hover:border-red-300 transition text-center group" wire:navigate>
-                            <div class="text-xs font-bold text-slate-800 group-hover:text-red-700">Usuarios y Roles</div>
-                            <div class="text-[11px] text-slate-500 mt-1">Control de accesos</div>
-                        </a>
-                        <a href="{{ route('admin.carreras') }}" class="p-4 bg-white rounded-xl border border-slate-200/80 shadow-xs hover:border-red-300 transition text-center group" wire:navigate>
-                            <div class="text-xs font-bold text-slate-800 group-hover:text-red-700">Carreras Académicas</div>
-                            <div class="text-[11px] text-slate-500 mt-1">Especialidades sede</div>
-                        </a>
-                        <a href="{{ route('admin.proveedores') }}" class="p-4 bg-white rounded-xl border border-slate-200/80 shadow-xs hover:border-red-300 transition text-center group" wire:navigate>
-                            <div class="text-xs font-bold text-slate-800 group-hover:text-red-700">Proveedores</div>
-                            <div class="text-[11px] text-slate-500 mt-1">Directorio comercial</div>
-                        </a>
-                        <a href="{{ route('admin.cotizaciones') }}" class="p-4 bg-white rounded-xl border border-slate-200/80 shadow-xs hover:border-red-300 transition text-center group" wire:navigate>
-                            <div class="text-xs font-bold text-slate-800 group-hover:text-red-700">Cotizaciones</div>
-                            <div class="text-[11px] text-slate-500 mt-1">Adjudicación y compras</div>
                         </a>
                     </div>
                 </div>
@@ -591,6 +247,45 @@
                                 </span>
                             </a>
                         </div>
+
+                        @if(auth()->user()->rol === 'administrador')
+                            <!-- Accesos Rápidos de Gestión Administrativa (Exclusivo Administrador) -->
+                            <div class="pt-2">
+                                <h3 class="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
+                                    <svg class="w-4 h-4 text-red-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    </svg>
+                                    Gestión Administrativa
+                                </h3>
+                                <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                    <a href="{{ route('admin.metricas') }}" class="p-3.5 bg-white rounded-xl border border-slate-200/80 shadow-xs hover:border-red-300 transition group" wire:navigate>
+                                        <div class="text-xs font-bold text-slate-800 group-hover:text-red-700">Métricas y Trazabilidad</div>
+                                        <div class="text-[11px] text-slate-500 mt-0.5">KPIs y demanda</div>
+                                    </a>
+                                    <a href="{{ route('admin.usuarios') }}" class="p-3.5 bg-white rounded-xl border border-slate-200/80 shadow-xs hover:border-red-300 transition group" wire:navigate>
+                                        <div class="text-xs font-bold text-slate-800 group-hover:text-red-700">Usuarios y Roles</div>
+                                        <div class="text-[11px] text-slate-500 mt-0.5">Control de accesos</div>
+                                    </a>
+                                    <a href="{{ route('admin.carreras') }}" class="p-3.5 bg-white rounded-xl border border-slate-200/80 shadow-xs hover:border-red-300 transition group" wire:navigate>
+                                        <div class="text-xs font-bold text-slate-800 group-hover:text-red-700">Carreras y Presupuesto</div>
+                                        <div class="text-[11px] text-slate-500 mt-0.5">Saldos por sede</div>
+                                    </a>
+                                    <a href="{{ route('admin.proveedores') }}" class="p-3.5 bg-white rounded-xl border border-slate-200/80 shadow-xs hover:border-red-300 transition group" wire:navigate>
+                                        <div class="text-xs font-bold text-slate-800 group-hover:text-red-700">Proveedores</div>
+                                        <div class="text-[11px] text-slate-500 mt-0.5">Directorio comercial</div>
+                                    </a>
+                                    <a href="{{ route('admin.cotizaciones') }}" class="p-3.5 bg-white rounded-xl border border-slate-200/80 shadow-xs hover:border-red-300 transition group" wire:navigate>
+                                        <div class="text-xs font-bold text-slate-800 group-hover:text-red-700">Cotizaciones</div>
+                                        <div class="text-[11px] text-slate-500 mt-0.5">Adjudicación y compras</div>
+                                    </a>
+                                    <a href="{{ route('admin.parametros') }}" class="p-3.5 bg-white rounded-xl border border-slate-200/80 shadow-xs hover:border-red-300 transition group" wire:navigate>
+                                        <div class="text-xs font-bold text-slate-800 group-hover:text-red-700">Parámetros</div>
+                                        <div class="text-[11px] text-slate-500 mt-0.5">Reglas globales</div>
+                                    </a>
+                                </div>
+                            </div>
+                        @endif
                     </div>
 
                     <!-- Columna Derecha: Sucesos Importantes (5 columnas) -->

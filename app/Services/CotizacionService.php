@@ -79,6 +79,12 @@ class CotizacionService
             ]);
         }
 
+        if ($proveedores->contains(fn (Proveedor $p): bool => ! in_array($p->tipo, ['insumos', 'ambos'], true))) {
+            throw ValidationException::withMessages([
+                'proveedores' => 'Solo se pueden notificar proveedores de rubro Insumos o Ambos rubros.',
+            ]);
+        }
+
         $enviosCreados = [];
 
         DB::transaction(function () use ($solicitud, $proveedores, &$enviosCreados) {
@@ -145,6 +151,24 @@ class CotizacionService
     ): Cotizacion {
         if ($montoTotal <= 0) {
             throw new InvalidArgumentException('El monto total ofertado en la cotización debe ser superior a cero.');
+        }
+
+        if (! $proveedor->activo || ! in_array($proveedor->tipo, ['insumos', 'ambos'], true)) {
+            throw ValidationException::withMessages([
+                'proveedorCotizacionId' => 'Solo se pueden registrar cotizaciones de proveedores activos de rubro Insumos o Ambos rubros.',
+            ]);
+        }
+
+        if ($solicitud->estado === 'borrador') {
+            throw ValidationException::withMessages([
+                'proveedorCotizacionId' => 'No es posible registrar propuestas en una solicitud en borrador sin envíos a proveedores.',
+            ]);
+        }
+
+        if ($solicitud->envios()->exists() && ! $solicitud->envios()->where('proveedor_id', $proveedor->id)->exists()) {
+            throw ValidationException::withMessages([
+                'proveedorCotizacionId' => 'El proveedor seleccionado no forma parte de los proveedores notificados en esta solicitud.',
+            ]);
         }
 
         return DB::transaction(function () use ($solicitud, $proveedor, $montoTotal, $fechaRecepcion, $archivo, $subidoPor) {

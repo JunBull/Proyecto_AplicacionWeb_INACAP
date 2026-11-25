@@ -38,6 +38,12 @@ new class extends Component
                         Inicio
                     </x-nav-link>
 
+                    @if(auth()->user()->rol === 'administrador')
+                        <x-nav-link :href="route('admin.metricas')" :active="request()->routeIs('admin.metricas')" wire:navigate class="px-2.5 py-1.5 text-xs lg:text-sm">
+                            Métricas
+                        </x-nav-link>
+                    @endif
+
                     @if(auth()->user()->rol !== 'docente')
                         <!-- Desplegable: Operaciones -->
                         @php
@@ -208,7 +214,7 @@ new class extends Component
                         <!-- Desplegable: Administración (Exclusivo Administrador) -->
                         @if(auth()->user()->rol === 'administrador')
                             @php
-                                $isAdminActive = request()->routeIs('admin.*');
+                                $isAdminActive = request()->routeIs('admin.usuarios', 'admin.carreras', 'admin.parametros', 'admin.bajas');
                             @endphp
                             <div class="relative inline-flex items-center h-16" x-data="{ openAdmin: false }" @click.outside="openAdmin = false" @close.stop="openAdmin = false">
                                 <button 
@@ -359,6 +365,12 @@ new class extends Component
             <x-responsive-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')" wire:navigate>
                 Inicio
             </x-responsive-nav-link>
+
+            @if(auth()->user()->rol === 'administrador')
+                <x-responsive-nav-link :href="route('admin.metricas')" :active="request()->routeIs('admin.metricas')" wire:navigate>
+                    Métricas
+                </x-responsive-nav-link>
+            @endif
 
             @if(auth()->user()->rol !== 'docente')
                 <!-- Sección Móvil: Operaciones -->

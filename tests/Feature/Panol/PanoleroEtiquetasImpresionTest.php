@@ -84,18 +84,15 @@ class PanoleroEtiquetasImpresionTest extends TestCase
         $component->assertDontSee('Generar Lote Seleccionado');
     }
 
-    public function test_metricas_kpi_estan_contenidas_en_acordeon_colapsable_no_print(): void
+    public function test_panel_metricas_cobertura_y_rendimiento_fue_removido(): void
     {
         $this->actingAs($this->panolero);
 
         $component = Volt::test('pages.etiquetas.index');
 
-        // Las métricas existen para compatibilidad con CP-27 y auditoría, pero están en details no-print
-        $component->assertSee('Métricas de Cobertura y Rendimiento');
-        $component->assertSee('Cobertura de Etiquetado (KPI-05)');
-        $component->assertSee('Pendientes de Impresión');
-        $component->assertSee('Rendimiento de Lotes (SLA-07)');
-        $component->assertSee('no-print');
+        $component->assertDontSee('Métricas de Cobertura y Rendimiento');
+        $component->assertDontSee('Cobertura de Etiquetado (KPI-05)');
+        $component->assertDontSee('Rendimiento de Lotes (SLA-07)');
     }
 
     public function test_generar_lote_etiquetas_muestra_contenedor_impresion_sin_banner_sla(): void

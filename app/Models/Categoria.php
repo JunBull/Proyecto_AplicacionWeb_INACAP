@@ -30,6 +30,11 @@ class Categoria extends Model
         ];
     }
 
+    public function subcategorias(): HasMany
+    {
+        return $this->hasMany(Subcategoria::class, 'categoria_id')->orderBy('orden');
+    }
+
     public function equipos(): HasMany
     {
         return $this->hasMany(Equipo::class, 'categoria_id');

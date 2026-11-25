@@ -33,6 +33,7 @@ Route::middleware(['auth', 'role:administrador'])->prefix('admin')->name('admin.
     })->name('usuarios');
     Volt::route('/carreras', 'pages.administracion.carreras')->name('carreras');
     Volt::route('/parametros', 'pages.administracion.parametros')->name('parametros');
+    Volt::route('/metricas', 'pages.administracion.metricas')->name('metricas');
     Route::get('/documentos/{id}', fn ($id) => response()->json(['status' => 'ok', 'documento_id' => $id]))->name('documentos.show');
     Volt::route('/bajas', 'pages.bajas.index')->name('bajas');
     Volt::route('/proveedores', 'pages.proveedores.index')->name('proveedores');

@@ -46,14 +46,13 @@ class CasoPruebaCP27Test extends TestCase
     }
 
     /**
-     * CP-27: Consulta y despliegue de métricas de cobertura de etiquetado (KPI-05) y estadísticas en módulo de Etiquetas.
+     * CP-27 (actualizado): El módulo de Etiquetas opera sin el acordeón de Métricas de Cobertura y Rendimiento.
      */
-    public function test_despliega_metricas_cobertura_etiquetado_kpi_05(): void
+    public function test_etiquetas_despliega_vista_operativa_sin_panel_metricas(): void
     {
         $this->actingAs($this->panolero);
 
-        // Crear 2 equipos con código de barras
-        $eq1 = Equipo::create([
+        Equipo::create([
             'codigo_barras' => 'EQ-INF-ETQ-001',
             'nombre' => 'Notebook HP ProBook 450 G8',
             'marca' => 'HP',
@@ -63,18 +62,7 @@ class CasoPruebaCP27Test extends TestCase
             'ubicacion_id' => $this->bodega->id,
         ]);
 
-        $eq2 = Equipo::create([
-            'codigo_barras' => 'EQ-INF-ETQ-002',
-            'nombre' => 'Switch Administrable Cisco Catalyst 2960',
-            'marca' => 'Cisco',
-            'modelo' => 'Catalyst 2960',
-            'numero_serie' => 'SN-CSCO-002',
-            'estado' => 'disponible',
-            'ubicacion_id' => $this->bodega->id,
-        ]);
-
-        // Crear 1 insumo con código de barras
-        $ins1 = Insumo::create([
+        Insumo::create([
             'codigo_barras' => 'INS-INF-ETQ-001',
             'nombre' => 'Tester Cable de Red RJ45 / RJ11',
             'unidad' => 'unidad',
@@ -84,19 +72,13 @@ class CasoPruebaCP27Test extends TestCase
             'ubicacion_id' => $this->bodega->id,
         ]);
 
-        // Total catálogo = 3 items, los 3 con código => Cobertura 100.0%
-        $component = Volt::test('pages.etiquetas.index')
+        Volt::test('pages.etiquetas.index')
             ->assertOk()
-            ->assertSee('Cobertura de Etiquetado (KPI-05)')
-            ->assertSee('Pendientes de Impresión')
-            ->assertSee('Rendimiento de Lotes (SLA-07)')
-            ->assertSee('100%');
-
-        $metricas = $component->instance()->metricasEtiquetas();
-        $this->assertEquals(3, $metricas['total_items']);
-        $this->assertEquals(3, $metricas['total_con_codigo']);
-        $this->assertEquals(100.0, $metricas['porcentaje_cobertura']);
-        $this->assertEquals(3, $metricas['pendientes_impresion']);
+            ->assertSee('Etiquetas')
+            ->assertSee('EQ-INF-ETQ-001')
+            ->assertSee('INS-INF-ETQ-001')
+            ->assertDontSee('Métricas de Cobertura y Rendimiento')
+            ->assertDontSee('Cobertura de Etiquetado (KPI-05)');
     }
 
     /**

@@ -4,6 +4,7 @@ use App\Models\Carrera;
 use App\Models\Categoria;
 use App\Models\Equipo;
 use App\Models\Mantenimiento;
+use App\Models\Subcategoria;
 use App\Models\Ubicacion;
 use App\Services\BarcodeService;
 use App\Services\EquipoService;
@@ -21,6 +22,7 @@ new #[Layout('layouts.app')] class extends Component
 
     public string $buscar = '';
     public string $filtroCategoriaId = '';
+    public string $filtroSubcategoriaId = '';
     public string $filtroEstado = '';
     public ?int $filtroUbicacionId = null;
 
@@ -35,6 +37,11 @@ new #[Layout('layouts.app')] class extends Component
     public string $modelo = '';
     public string $numero_serie = '';
     public ?int $categoria_id = null;
+    public ?int $subcategoria_id = null;
+    public string $familiaSeleccionada = '';
+    public string $prefijoSubcategoria = '';
+    public string $sufijoCodigoNuevo = '';
+    public ?string $mensajeGuardadoModal = null;
     public ?int $ubicacion_id = null;
     public $fotografia = null;
 
@@ -51,7 +58,7 @@ new #[Layout('layouts.app')] class extends Component
     {
         Gate::authorize('viewAny', Equipo::class);
 
-        if (Categoria::count() === 0) {
+        if (Categoria::count() === 0 || Subcategoria::count() === 0) {
             (new \Database\Seeders\CategoriasEquiposSeeder())->run();
         }
 
@@ -63,10 +70,11 @@ new #[Layout('layouts.app')] class extends Component
         $primeraCategoria = Categoria::orderBy('orden')->first();
         if ($primeraCategoria) {
             $this->categoria_id = $primeraCategoria->id;
+            $this->subcategoria_id = Subcategoria::where('categoria_id', $primeraCategoria->id)
+                ->where('activo', true)
+                ->orderBy('orden')
+                ->value('id');
         }
-
-        // Por defecto abrimos las categorías para explorar el catálogo
-        $this->categoriasAbiertas = Categoria::pluck('id')->toArray();
 
         $catOsc = Categoria::where('slug', 'instrumentacion-electronica')->value('id');
         $catDef = Categoria::where('slug', 'computo-movil')->value('id') ?? Categoria::first()?->id;
@@ -77,6 +85,96 @@ new #[Layout('layouts.app')] class extends Component
                 $eq->update(['categoria_id' => $catDef]);
             }
         });
+    }
+
+    public function updatedFiltroCategoriaId(): void
+    {
+        $this->filtroSubcategoriaId = '';
+    }
+
+    public function updatedCategoriaId($val): void
+    {
+        $this->subcategoria_id = $val
+            ? Subcategoria::where('categoria_id', (int) $val)->where('activo', true)->orderBy('orden')->value('id')
+            : null;
+
+        $this->sincronizarCambioSubcategoria();
+    }
+
+    public function updatedSubcategoriaId($val): void
+    {
+        $this->sincronizarCambioSubcategoria();
+    }
+
+    public function updatedFamiliaSeleccionada($val): void
+    {
+        $this->resetErrorBag(['familiaSeleccionada', 'sufijoCodigoNuevo', 'codigo_barras', 'nombre', 'marca', 'modelo', 'numero_serie']);
+        $this->mensajeGuardadoModal = null;
+
+        if ($val === '' || $val === '__nuevo__') {
+            $this->nombre = '';
+            $this->marca = '';
+            $this->modelo = '';
+            $this->sufijoCodigoNuevo = '';
+            $this->codigo_barras = '';
+
+            return;
+        }
+
+        $familia = $this->familiasDisponibles()->firstWhere('codigo_base', $val);
+        if ($familia) {
+            $this->nombre = $familia['nombre'];
+            $this->marca = $familia['marca'];
+            $this->modelo = $familia['modelo'];
+            $this->codigo_barras = $familia['siguiente_codigo'];
+            $this->sufijoCodigoNuevo = '';
+        }
+    }
+
+    public function updatedSufijoCodigoNuevo(): void
+    {
+        $this->recalcularCodigoNuevoModelo();
+    }
+
+    protected function sincronizarCambioSubcategoria(): void
+    {
+        $this->prefijoSubcategoria = $this->subcategoria_id
+            ? (Subcategoria::where('id', (int) $this->subcategoria_id)->value('codigo_prefijo') ?? 'EQ')
+            : 'EQ';
+
+        $eraFamiliaExistente = $this->familiaSeleccionada !== '' && $this->familiaSeleccionada !== '__nuevo__';
+        $this->sufijoCodigoNuevo = '';
+        $this->mensajeGuardadoModal = null;
+
+        if ($eraFamiliaExistente) {
+            $this->nombre = '';
+            $this->marca = '';
+            $this->modelo = '';
+            $this->codigo_barras = '';
+        }
+
+        $familias = $this->familiasDisponibles();
+        $this->familiaSeleccionada = $familias->isEmpty() ? '__nuevo__' : '';
+    }
+
+    protected function recalcularCodigoNuevoModelo(): void
+    {
+        if (! $this->mostrarModalCrear || $this->familiaSeleccionada !== '__nuevo__') {
+            return;
+        }
+
+        $equipoService = app(EquipoService::class);
+        $codigo = $equipoService->construirCodigoDesdePrefijo($this->prefijoSubcategoria, $this->sufijoCodigoNuevo);
+        $this->codigo_barras = $codigo;
+    }
+
+    public function familiasDisponibles()
+    {
+        if (! $this->subcategoria_id) {
+            return collect();
+        }
+
+        return app(EquipoService::class)->obtenerFamiliasPorSubcategoria((int) $this->subcategoria_id);
     }
 
     public function toggleCategoria(int $categoriaId): void
@@ -103,6 +201,26 @@ new #[Layout('layouts.app')] class extends Component
         return Categoria::where('activo', true)->orderBy('orden')->get();
     }
 
+    public function subcategoriasFiltro()
+    {
+        return Subcategoria::where('activo', true)
+            ->when($this->filtroCategoriaId !== '', fn ($q) => $q->where('categoria_id', (int) $this->filtroCategoriaId))
+            ->orderBy('orden')
+            ->get();
+    }
+
+    public function subcategoriasFormulario()
+    {
+        if (! $this->categoria_id) {
+            return collect();
+        }
+
+        return Subcategoria::where('activo', true)
+            ->where('categoria_id', (int) $this->categoria_id)
+            ->orderBy('orden')
+            ->get();
+    }
+
     public function ubicaciones()
     {
         return Ubicacion::with('carrera')->orderBy('nombre')->get();
@@ -119,7 +237,6 @@ new #[Layout('layouts.app')] class extends Component
         if ($todasCategorias->isEmpty()) {
             (new \Database\Seeders\CategoriasEquiposSeeder())->run();
             $todasCategorias = Categoria::where('activo', true)->orderBy('orden')->get();
-            $this->categoriasAbiertas = $todasCategorias->pluck('id')->toArray();
         }
 
         $catOsc = Categoria::where('slug', 'instrumentacion-electronica')->value('id');
@@ -132,10 +249,6 @@ new #[Layout('layouts.app')] class extends Component
             }
         });
 
-        if (empty($this->categoriasAbiertas) && $termino === '') {
-            $this->categoriasAbiertas = $todasCategorias->pluck('id')->toArray();
-        }
-
         // Si se especificó un filtro directo de categoría, filtramos la lista
         if ($this->filtroCategoriaId !== '') {
             $todasCategorias = $todasCategorias->where('id', (int) $this->filtroCategoriaId);
@@ -144,7 +257,7 @@ new #[Layout('layouts.app')] class extends Component
         $resultado = [];
 
         foreach ($todasCategorias as $cat) {
-            $query = Equipo::with(['ubicacion.carrera', 'documentos', 'categoria'])
+            $query = Equipo::with(['ubicacion.carrera', 'documentos', 'categoria', 'subcategoria'])
                 ->where('categoria_id', $cat->id);
 
             if ($termino !== '') {
@@ -154,8 +267,13 @@ new #[Layout('layouts.app')] class extends Component
                       ->orWhere('codigo_barras', 'LIKE', $t)
                       ->orWhere('marca', 'LIKE', $t)
                       ->orWhere('modelo', 'LIKE', $t)
-                      ->orWhere('numero_serie', 'LIKE', $t);
+                      ->orWhere('numero_serie', 'LIKE', $t)
+                      ->orWhereHas('subcategoria', fn ($sq) => $sq->where('nombre', 'LIKE', $t));
                 });
+            }
+
+            if ($this->filtroSubcategoriaId !== '') {
+                $query->where('subcategoria_id', (int) $this->filtroSubcategoriaId);
             }
 
             if ($this->filtroEstado !== '') {
@@ -193,54 +311,104 @@ new #[Layout('layouts.app')] class extends Component
         return $resultado;
     }
 
-    public function abrirModalCrear(): void
+    public function abrirModalCrear(EquipoService $equipoService): void
     {
         Gate::authorize('create', Equipo::class);
         $this->resetErrorBag();
-        $this->codigo_barras = 'EQ-' . strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
         $this->nombre = '';
         $this->marca = '';
         $this->modelo = '';
         $this->numero_serie = '';
+        $this->sufijoCodigoNuevo = '';
+        $this->codigo_barras = '';
+        $this->mensajeGuardadoModal = null;
         if (!$this->categoria_id) {
             $this->categoria_id = Categoria::orderBy('orden')->value('id');
         }
+        if ($this->categoria_id && (! $this->subcategoria_id || ! Subcategoria::where('id', $this->subcategoria_id)->where('categoria_id', $this->categoria_id)->exists())) {
+            $this->subcategoria_id = Subcategoria::where('categoria_id', $this->categoria_id)
+                ->where('activo', true)
+                ->orderBy('orden')
+                ->value('id');
+        }
+        $this->prefijoSubcategoria = $this->subcategoria_id
+            ? (Subcategoria::where('id', $this->subcategoria_id)->value('codigo_prefijo') ?? 'EQ')
+            : 'EQ';
+        $this->familiaSeleccionada = $this->familiasDisponibles()->isEmpty() ? '__nuevo__' : '';
         $this->fotografia = null;
         $this->mostrarModalCrear = true;
     }
 
-    public function guardarEquipo(EquipoService $equipoService): void
+    public function guardarEquipo(EquipoService $equipoService, bool $agregarOtro = false): void
     {
         Gate::authorize('create', Equipo::class);
 
+        $esEscenarioA = $this->familiaSeleccionada !== '' && $this->familiaSeleccionada !== '__nuevo__';
+
+        if ($esEscenarioA) {
+            $familia = $this->familiasDisponibles()->firstWhere('codigo_base', $this->familiaSeleccionada);
+            if ($familia) {
+                $this->nombre = $familia['nombre'];
+                $this->marca = $familia['marca'];
+                $this->modelo = $familia['modelo'];
+            }
+            $this->codigo_barras = $equipoService->siguienteCorrelativoPorBase($this->familiaSeleccionada);
+        } elseif ($this->familiaSeleccionada === '__nuevo__') {
+            if (trim($this->sufijoCodigoNuevo) !== '') {
+                $this->codigo_barras = $equipoService->construirCodigoDesdePrefijo($this->prefijoSubcategoria, $this->sufijoCodigoNuevo);
+            } elseif (trim($this->codigo_barras) === '') {
+                $this->addError('sufijoCodigoNuevo', 'Debe ingresar la sigla de marca/modelo para construir el código (ej. SAM-S9).');
+
+                return;
+            }
+        } elseif (trim($this->codigo_barras) === '') {
+            $this->addError('familiaSeleccionada', 'Debe seleccionar un modelo existente o "+ Otro / Nuevo modelo".');
+
+            return;
+        }
+
         $this->validate([
             'categoria_id' => 'required|exists:categorias,id',
+            'subcategoria_id' => 'nullable|exists:subcategorias,id',
             'fotografia' => 'nullable|file|mimes:jpg,jpeg,png,webp|max:5120',
         ], [
             'categoria_id.required' => 'Debe seleccionar una categoría institucional.',
             'categoria_id.exists' => 'La categoría seleccionada no es válida.',
+            'subcategoria_id.exists' => 'La subcategoría seleccionada no es válida.',
             'fotografia.mimes' => 'La fotografía debe tener formato JPG, PNG o WEBP.',
             'fotografia.max' => 'La fotografía no debe superar los 5 MB.',
         ]);
 
         try {
-            $equipoService->registrarEquipo([
+            $equipo = $equipoService->registrarEquipo([
                 'codigo_barras' => $this->codigo_barras,
                 'nombre' => $this->nombre,
                 'marca' => $this->marca,
                 'modelo' => $this->modelo,
                 'numero_serie' => $this->numero_serie,
                 'categoria_id' => (int) $this->categoria_id,
+                'subcategoria_id' => $this->subcategoria_id ? (int) $this->subcategoria_id : null,
                 'ubicacion_id' => (int) $this->ubicacion_id,
                 'fotografia' => $this->fotografia,
             ], Auth::user());
 
-            // Abrir automáticamente el acordeón de la categoría donde se registró el activo
-            if ($this->categoria_id && !in_array($this->categoria_id, $this->categoriasAbiertas, true)) {
-                $this->categoriasAbiertas[] = (int) $this->categoria_id;
+            if ($agregarOtro) {
+                $codigoBase = preg_replace('/-\d+$/', '', $equipo->codigo_barras) ?: $equipo->codigo_barras;
+                if ($this->familiaSeleccionada === '__nuevo__' || $this->familiaSeleccionada === '') {
+                    $this->familiaSeleccionada = $codigoBase;
+                    $this->sufijoCodigoNuevo = '';
+                }
+                $this->codigo_barras = $equipoService->siguienteCorrelativoPorBase($codigoBase);
+                $this->numero_serie = '';
+                $this->fotografia = null;
+                $this->resetErrorBag();
+                $this->mensajeGuardadoModal = "Unidad {$equipo->codigo_barras} guardada. Escanee el N° de Serie para el siguiente ({$this->codigo_barras}).";
+
+                return;
             }
 
             $this->mostrarModalCrear = false;
+            $this->mensajeGuardadoModal = null;
             session()->flash('mensaje', 'Equipo registrado exitosamente con ficha técnica categorizada.');
         } catch (ValidationException $e) {
             foreach ($e->errors() as $campo => $mensajes) {
@@ -323,7 +491,7 @@ new #[Layout('layouts.app')] class extends Component
 
         <!-- Filtros y Búsqueda Global -->
         <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100 space-y-4">
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div class="grid grid-cols-1 md:grid-cols-5 gap-4">
                 <div>
                     <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Buscar</label>
                     <input wire:model.live.debounce.300ms="buscar" type="text" placeholder="Buscar categoría, equipo o serie..." class="w-full text-sm rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500">
@@ -334,6 +502,15 @@ new #[Layout('layouts.app')] class extends Component
                         <option value="">Todas las categorías</option>
                         @foreach($this->categorias() as $c)
                             <option value="{{ $c->id }}">{{ $c->nombre }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Subcategoría</label>
+                    <select wire:model.live="filtroSubcategoriaId" class="w-full text-sm rounded-md border-gray-300 shadow-sm focus:border-red-500 focus:ring-red-500">
+                        <option value="">Todas las subcategorías</option>
+                        @foreach($this->subcategoriasFiltro() as $sub)
+                            <option value="{{ $sub->id }}">{{ $sub->nombre }}</option>
                         @endforeach
                     </select>
                 </div>
@@ -363,7 +540,7 @@ new #[Layout('layouts.app')] class extends Component
             <!-- Botones de Acción Rápida para Acordeones -->
             <div class="flex items-center justify-between pt-2 border-t border-gray-100 text-xs text-gray-500">
                 <div>
-                    Mostrando equipos clasificados en las 7 áreas tecnológicas de pañol.
+                    Mostrando equipos clasificados en las 6 áreas tecnológicas de pañol.
                 </div>
                 <div class="flex items-center space-x-3">
                     <button wire:click="expandirTodas" class="text-red-700 hover:text-red-900 font-medium transition">
@@ -385,12 +562,12 @@ new #[Layout('layouts.app')] class extends Component
                 @php
                     $cat = $grupo['categoria'];
                     $equipos = $grupo['equipos'];
-                    $abierto = in_array($cat->id, $categoriasAbiertas, true);
+                    $abierto = in_array($cat->id, $this->categoriasAbiertas, true);
                 @endphp
 
-                <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden transition-all duration-200">
+                <div wire:key="categoria-card-{{ $cat->id }}" class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden transition-all duration-200">
                     <!-- Cabecera de Acordeón -->
-                    <button wire:click="toggleCategoria({{ $cat->id }})" type="button" class="w-full px-5 py-4 flex items-center justify-between bg-white hover:bg-gray-50/80 transition text-left focus:outline-none">
+                    <button wire:click="toggleCategoria({{ $cat->id }})" type="button" aria-expanded="{{ $abierto ? 'true' : 'false' }}" class="w-full px-5 py-4 flex items-center justify-between bg-white hover:bg-gray-50/80 transition text-left focus:outline-none">
                         <div class="flex items-center space-x-3">
                             <!-- Indicador Chevron rotatorio -->
                             <svg class="w-5 h-5 text-gray-400 transform transition-transform duration-200 {{ $abierto ? 'rotate-90 text-red-700' : '' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -440,9 +617,8 @@ new #[Layout('layouts.app')] class extends Component
                     </button>
 
                     <!-- Tabla de Equipos Expandible -->
-                    @if($abierto)
-                        <div class="border-t border-gray-200 overflow-x-auto">
-                            <table class="min-w-full divide-y divide-gray-200 text-sm">
+                    <div class="border-t border-gray-200 overflow-x-auto {{ $abierto ? '' : 'hidden' }}" @if(!$abierto) hidden @endif>
+                        <table class="min-w-full divide-y divide-gray-200 text-sm">
                                 <thead class="bg-gray-50 text-gray-600 text-xs uppercase font-semibold">
                                     <tr>
                                         <th class="px-6 py-3 text-left">Código / Barras</th>
@@ -461,7 +637,12 @@ new #[Layout('layouts.app')] class extends Component
                                             </td>
                                             <td class="px-6 py-4 font-medium text-gray-900">
                                                 {{ $eq->nombre }}
-                                                <div class="text-xs text-gray-500 font-normal">S/N: {{ $eq->numero_serie }}</div>
+                                                <div class="text-xs text-gray-500 font-normal">
+                                                    S/N: {{ $eq->numero_serie }}
+                                                    @if($eq->subcategoria)
+                                                        <span class="ml-1.5 inline-flex items-center px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[11px] font-medium">{{ $eq->subcategoria->nombre }}</span>
+                                                    @endif
+                                                </div>
                                             </td>
                                             <td class="px-6 py-4 text-gray-600">
                                                 {{ $eq->marca }}
@@ -495,8 +676,7 @@ new #[Layout('layouts.app')] class extends Component
                                     @endforelse
                                 </tbody>
                             </table>
-                        </div>
-                    @endif
+                    </div>
                 </div>
             @empty
                 <div class="bg-white p-8 rounded-lg shadow-sm border border-gray-100 text-center text-gray-500">
@@ -508,6 +688,10 @@ new #[Layout('layouts.app')] class extends Component
 
     <!-- Modal Registro de Ficha Técnica de Equipo -->
     @if($mostrarModalCrear)
+        @php
+            $esEscenarioA = $familiaSeleccionada !== '' && $familiaSeleccionada !== '__nuevo__';
+            $familiasModal = $this->familiasDisponibles();
+        @endphp
         <div class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 p-4">
             <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto">
                 <div class="flex justify-between items-center border-b pb-3">
@@ -515,49 +699,112 @@ new #[Layout('layouts.app')] class extends Component
                     <button wire:click="$set('mostrarModalCrear', false)" class="text-gray-400 hover:text-gray-600 text-xl font-bold">&times;</button>
                 </div>
 
+                @if($mensajeGuardadoModal)
+                    <div class="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-medium rounded-md">
+                        {{ $mensajeGuardadoModal }}
+                    </div>
+                @endif
+
                 <div class="space-y-4">
+                    <!-- Paso 1: Selección Jerárquica Categoría -> Subcategoría -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-700 uppercase mb-1">1. Categoría General</label>
+                            <select wire:model.live="categoria_id" class="w-full text-sm rounded-md border-gray-300 focus:border-red-500 focus:ring-red-500">
+                                @foreach($this->categorias() as $cat)
+                                    <option value="{{ $cat->id }}">{{ $cat->nombre }}</option>
+                                @endforeach
+                            </select>
+                            @error('categoria_id') <span class="text-xs text-red-600 font-medium">{{ $message }}</span> @enderror
+                        </div>
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <label class="block text-xs font-semibold text-gray-700 uppercase">2. Subcategoría</label>
+                                <span class="text-[11px] font-mono font-semibold text-red-700 bg-red-50 px-1.5 py-0.5 rounded">
+                                    Prefijo: {{ $prefijoSubcategoria }}-
+                                </span>
+                            </div>
+                            <select wire:model.live="subcategoria_id" class="w-full text-sm rounded-md border-gray-300 focus:border-red-500 focus:ring-red-500">
+                                @foreach($this->subcategoriasFormulario() as $sub)
+                                    <option value="{{ $sub->id }}">{{ $sub->nombre }} ({{ $sub->codigo_prefijo }}-)</option>
+                                @endforeach
+                            </select>
+                            @error('subcategoria_id') <span class="text-xs text-red-600 font-medium">{{ $message }}</span> @enderror
+                        </div>
+                    </div>
+
+                    <!-- Paso 2: Desplegable de Modelo / Familia de Código -->
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-700 uppercase mb-1">3. Modelo / Familia de Código</label>
+                        <select wire:model.live="familiaSeleccionada" class="w-full text-sm rounded-md border-gray-300 focus:border-red-500 focus:ring-red-500">
+                            <option value="">-- Seleccione un modelo existente o cree uno nuevo --</option>
+                            @foreach($familiasModal as $fam)
+                                <option value="{{ $fam['codigo_base'] }}">{{ $fam['codigo_base'] }} — {{ $fam['nombre'] }} ({{ $fam['total_unidades'] }} unid.)</option>
+                            @endforeach
+                            <option value="__nuevo__">+ Otro / Nuevo modelo</option>
+                        </select>
+                        @error('familiaSeleccionada') <span class="text-xs text-red-600 font-medium">{{ $message }}</span> @enderror
+                    </div>
+
+                    <!-- Paso 3: Código de Barras (Escenario A automático vs Escenario B constructor) -->
+                    @if($esEscenarioA)
+                        <div class="p-3 bg-slate-50 border border-slate-200 rounded-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                            <div>
+                                <span class="text-[11px] font-semibold uppercase text-slate-500 block">Código de Barras Asignado (Correlativo Automático)</span>
+                                <span class="text-sm font-mono font-bold text-slate-900">{{ $codigo_barras }}</span>
+                            </div>
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-200 text-slate-700">
+                                Familia bloqueada (datos consistentes)
+                            </span>
+                        </div>
+                        @error('codigo_barras') <span class="text-xs text-red-600 font-medium">{{ $message }}</span> @enderror
+                    @elseif($familiaSeleccionada === '__nuevo__')
+                        <div class="p-3 bg-amber-50/60 border border-amber-200 rounded-md space-y-2">
+                            <label class="block text-xs font-semibold text-gray-700 uppercase">Constructor de Código Base (Nuevo Modelo)</label>
+                            <div class="flex items-center gap-1.5">
+                                <span class="px-2.5 py-2 bg-gray-200 border border-gray-300 rounded-l-md text-sm font-mono font-bold text-gray-700 select-none">
+                                    {{ $prefijoSubcategoria }}-
+                                </span>
+                                <input wire:model.live.debounce.250ms="sufijoCodigoNuevo" type="text" placeholder="Ej: SAM-S9" class="flex-1 text-sm rounded-none border-gray-300 font-mono uppercase focus:border-red-500 focus:ring-red-500">
+                                <span class="px-2.5 py-2 bg-gray-100 border border-gray-300 rounded-r-md text-sm font-mono font-semibold text-gray-600 select-none">
+                                    -{{ str_contains($codigo_barras, '-') ? substr($codigo_barras, strrpos($codigo_barras, '-') + 1) : '01' }}
+                                </span>
+                            </div>
+                            <div class="text-xs text-gray-600">
+                                Código final: <span class="font-mono font-bold text-gray-900">{{ $codigo_barras ?: ($prefijoSubcategoria . '-____-01') }}</span>
+                            </div>
+                            @error('sufijoCodigoNuevo') <span class="text-xs text-red-600 font-medium block">{{ $message }}</span> @enderror
+                            @error('codigo_barras') <span class="text-xs text-red-600 font-medium block">{{ $message }}</span> @enderror
+                        </div>
+                    @endif
+
+                    <!-- Datos de la Familia (bloqueados en Escenario A, editables en Escenario B) -->
                     <div>
                         <label class="block text-xs font-semibold text-gray-700 uppercase mb-1">Nombre Estandarizado</label>
-                        <input wire:model="nombre" type="text" placeholder="Ej: Computador de Escritorio All-in-One Intel Core i7 - Lab Redes" class="w-full text-sm rounded-md border-gray-300 focus:border-red-500 focus:ring-red-500">
+                        <input wire:model="nombre" type="text" @readonly($esEscenarioA) placeholder="Ej: Tablet Samsung Galaxy Tab S9" class="w-full text-sm rounded-md border-gray-300 focus:border-red-500 focus:ring-red-500 {{ $esEscenarioA ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : '' }}">
                         <p class="text-xs text-gray-500 mt-1">Debe ser descriptivo. Prohibidas siglas como PC-01, SW-L2.</p>
                         @error('nombre') <span class="text-xs text-red-600 font-medium">{{ $message }}</span> @enderror
                     </div>
 
                     <div class="grid grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-xs font-semibold text-gray-700 uppercase mb-1">Código de Barras</label>
-                            <input wire:model="codigo_barras" type="text" class="w-full text-sm rounded-md border-gray-300 font-mono focus:border-red-500 focus:ring-red-500">
-                            @error('codigo_barras') <span class="text-xs text-red-600 font-medium">{{ $message }}</span> @enderror
-                        </div>
-                        <div>
-                            <label class="block text-xs font-semibold text-gray-700 uppercase mb-1">Número de Serie</label>
-                            <input wire:model="numero_serie" type="text" placeholder="SN-12345678" class="w-full text-sm rounded-md border-gray-300 focus:border-red-500 focus:ring-red-500">
-                            @error('numero_serie') <span class="text-xs text-red-600 font-medium">{{ $message }}</span> @enderror
-                        </div>
-                    </div>
-
-                    <div class="grid grid-cols-2 gap-4">
-                        <div>
                             <label class="block text-xs font-semibold text-gray-700 uppercase mb-1">Marca</label>
-                            <input wire:model="marca" type="text" placeholder="Ej: Cisco, HP, Dell, Lenovo" class="w-full text-sm rounded-md border-gray-300 focus:border-red-500 focus:ring-red-500">
+                            <input wire:model="marca" type="text" @readonly($esEscenarioA) placeholder="Ej: Cisco, HP, Dell, Lenovo" class="w-full text-sm rounded-md border-gray-300 focus:border-red-500 focus:ring-red-500 {{ $esEscenarioA ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : '' }}">
                             @error('marca') <span class="text-xs text-red-600 font-medium">{{ $message }}</span> @enderror
                         </div>
                         <div>
                             <label class="block text-xs font-semibold text-gray-700 uppercase mb-1">Modelo</label>
-                            <input wire:model="modelo" type="text" placeholder="Ej: Catalyst 2960-X, ThinkPad T14" class="w-full text-sm rounded-md border-gray-300 focus:border-red-500 focus:ring-red-500">
+                            <input wire:model="modelo" type="text" @readonly($esEscenarioA) placeholder="Ej: Catalyst 2960-X, ThinkPad T14" class="w-full text-sm rounded-md border-gray-300 focus:border-red-500 focus:ring-red-500 {{ $esEscenarioA ? 'bg-gray-100 text-gray-600 cursor-not-allowed' : '' }}">
                             @error('modelo') <span class="text-xs text-red-600 font-medium">{{ $message }}</span> @enderror
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-2 gap-4">
+                    <!-- Datos Individuales de la Unidad Física -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-xs font-semibold text-gray-700 uppercase mb-1">Categoría del Equipo</label>
-                            <select wire:model="categoria_id" class="w-full text-sm rounded-md border-gray-300 focus:border-red-500 focus:ring-red-500">
-                                @foreach($this->categorias() as $cat)
-                                    <option value="{{ $cat->id }}">{{ $cat->nombre }}</option>
-                                @endforeach
-                            </select>
-                            @error('categoria_id') <span class="text-xs text-red-600 font-medium">{{ $message }}</span> @enderror
+                            <label class="block text-xs font-semibold text-gray-700 uppercase mb-1">Número de Serie (S/N)</label>
+                            <input wire:model="numero_serie" type="text" placeholder="Escanee o escriba S/N único..." class="w-full text-sm rounded-md border-gray-300 font-mono focus:border-red-500 focus:ring-red-500">
+                            @error('numero_serie') <span class="text-xs text-red-600 font-medium">{{ $message }}</span> @enderror
                         </div>
                         <div>
                             <label class="block text-xs font-semibold text-gray-700 uppercase mb-1">Ubicación / Laboratorio</label>
@@ -577,8 +824,11 @@ new #[Layout('layouts.app')] class extends Component
                     </div>
                 </div>
 
-                <div class="flex justify-end gap-3 border-t pt-4">
+                <div class="flex flex-wrap justify-end gap-3 border-t pt-4">
                     <button wire:click="$set('mostrarModalCrear', false)" type="button" class="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-md">Cancelar</button>
+                    <button wire:click="guardarEquipo(true)" type="button" class="px-4 py-2 text-sm bg-gray-800 hover:bg-gray-900 text-white font-medium rounded-md shadow-sm transition">
+                        Guardar y agregar otro igual
+                    </button>
                     <button wire:click="guardarEquipo" type="button" class="px-4 py-2 text-sm bg-red-700 hover:bg-red-800 text-white font-medium rounded-md shadow-sm transition">Guardar Equipo</button>
                 </div>
             </div>

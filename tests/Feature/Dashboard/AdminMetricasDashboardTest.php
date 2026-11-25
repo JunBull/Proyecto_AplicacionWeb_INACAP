@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Services\DashboardMetricasService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\Volt\Volt;
 use Tests\TestCase;
 
 class AdminMetricasDashboardTest extends TestCase
@@ -64,16 +65,42 @@ class AdminMetricasDashboardTest extends TestCase
         ]);
     }
 
-    public function test_administrador_accede_a_su_dashboard_con_metricas_analiticas(): void
+    public function test_administrador_accede_a_su_dashboard_operativo_sin_panel_metricas_frontal(): void
     {
         $response = $this->actingAs($this->admin)->get(route('dashboard'));
+
+        $response->assertStatus(200);
+        $response->assertSee('Módulos');
+        $response->assertSee('Sucesos Importantes');
+        $response->assertSee('Despacho y Devoluciones');
+        $response->assertSee('Ingreso por Factura');
+        $response->assertSee('Ver Métricas');
+        $response->assertDontSee('Panel de Métricas y Trazabilidad Operativa');
+    }
+
+    public function test_administrador_accede_a_pestana_metricas_interactiva(): void
+    {
+        $response = $this->actingAs($this->admin)->get(route('admin.metricas'));
 
         $response->assertStatus(200);
         $response->assertSee('Panel de Métricas y Trazabilidad Operativa');
         $response->assertSee('Puntualidad Estudiantes');
         $response->assertSee('¿En qué horas se piden más cosas?');
-        $response->assertSee('Equipos que Más Fallan');
         $response->assertSee('Materiales Más Solicitados');
+
+        Volt::actingAs($this->admin)
+            ->test('pages.administracion.metricas')
+            ->assertSet('periodo', '30_dias')
+            ->assertSet('tabActiva', 'demanda')
+            ->call('seleccionarPeriodo', 'historico')
+            ->assertSet('periodo', 'historico')
+            ->call('seleccionarTab', 'confiabilidad')
+            ->assertSet('tabActiva', 'confiabilidad')
+            ->assertSee('Equipos que Más Fallan')
+            ->assertSee('Estado de Mantenimientos')
+            ->call('seleccionarTab', 'presupuesto')
+            ->assertSet('tabActiva', 'presupuesto')
+            ->assertSee('Ejecución Presupuestaria por Carrera');
     }
 
     public function test_calculo_tasa_puntualidad_estudiantes_es_exacto(): void
@@ -200,18 +227,27 @@ class AdminMetricasDashboardTest extends TestCase
         $this->assertGreaterThanOrEqual(1, $hora10['total']);
     }
 
-    public function test_encargado_panol_y_docente_no_ven_el_panel_analitico_de_administrador(): void
+    public function test_encargado_panol_y_docente_no_ven_el_panel_analitico_ni_acceden_a_metricas(): void
     {
         // Encargado de pañol
         $resPanolero = $this->actingAs($this->panolero)->get(route('dashboard'));
         $resPanolero->assertStatus(200);
         $resPanolero->assertDontSee('Panel de Métricas y Trazabilidad Operativa');
+        $resPanolero->assertDontSee('Gestión Administrativa');
         $resPanolero->assertSee('Despacho y Devoluciones');
+
+        $this->actingAs($this->panolero)
+            ->get(route('admin.metricas'))
+            ->assertStatus(403);
 
         // Docente
         $resDocente = $this->actingAs($this->docente)->get(route('dashboard'));
         $resDocente->assertStatus(200);
         $resDocente->assertDontSee('Panel de Métricas y Trazabilidad Operativa');
         $resDocente->assertSee('Solicitud de Materiales');
+
+        $this->actingAs($this->docente)
+            ->get(route('admin.metricas'))
+            ->assertStatus(403);
     }
 }

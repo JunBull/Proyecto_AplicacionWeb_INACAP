@@ -4,11 +4,16 @@ namespace Tests\Feature\Cotizaciones;
 
 use App\Jobs\DespacharCotizacionJob;
 use App\Models\Carrera;
+use App\Models\Cotizacion;
+use App\Models\EnvioCotizacion;
 use App\Models\Proveedor;
+use App\Models\SolicitudCotizacion;
 use App\Models\User;
+use App\Services\CotizacionService;
 use App\Services\ProveedorService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Validation\ValidationException;
 use Livewire\Volt\Volt;
 use Tests\TestCase;
 
@@ -168,5 +173,245 @@ class CotizacionCarreraProveedoresTest extends TestCase
         ]);
 
         Queue::assertPushed(DespacharCotizacionJob::class);
+    }
+
+    public function test_modal_nueva_solicitud_solo_lista_proveedores_de_insumos_y_ambos_excluyendo_mantenimiento(): void
+    {
+        $service = app(ProveedorService::class);
+
+        $provInsumos = $service->registrarProveedor([
+            'razon_social' => 'Insumos y Redes Austral SpA',
+            'rut' => '76.101.101-1',
+            'correo' => 'insumos@austral.cl',
+            'tipo' => 'insumos',
+            'activo' => true,
+            'carreras_ids' => [$this->carreraInformatica->id],
+        ]);
+
+        $provAmbos = $service->registrarProveedor([
+            'razon_social' => 'Comercializadora Integral SpA',
+            'rut' => '76.102.102-2',
+            'correo' => 'integral@comercial.cl',
+            'tipo' => 'ambos',
+            'activo' => true,
+            'carreras_ids' => [],
+        ]);
+
+        $provMantCarrera = $service->registrarProveedor([
+            'razon_social' => 'Servicio Tecnico Carrera SpA',
+            'rut' => '76.103.103-3',
+            'correo' => 'mantcarrera@st.cl',
+            'tipo' => 'mantenimiento',
+            'activo' => true,
+            'carreras_ids' => [$this->carreraInformatica->id],
+        ]);
+
+        $provMantGeneral = $service->registrarProveedor([
+            'razon_social' => 'Soporte General Mantencion Ltda',
+            'rut' => '76.104.104-4',
+            'correo' => 'mantgeneral@st.cl',
+            'tipo' => 'mantenimiento',
+            'activo' => true,
+            'carreras_ids' => [],
+        ]);
+
+        $this->actingAs($this->admin);
+
+        $component = Volt::test('pages.cotizaciones.index')
+            ->set('carrera_id', $this->carreraInformatica->id)
+            ->call('abrirModalSolicitud')
+            ->assertSet('mostrarModalSolicitud', true)
+            ->assertSee('Insumos y Redes Austral SpA')
+            ->assertSee('Comercializadora Integral SpA')
+            ->assertSee('Ambos rubros')
+            ->assertDontSee('Servicio Tecnico Carrera SpA')
+            ->assertDontSee('Soporte General Mantencion Ltda');
+
+        $seleccionados = $component->get('proveedoresSeleccionados');
+        $this->assertContains((string) $provInsumos->id, $seleccionados);
+        $this->assertContains((string) $provAmbos->id, $seleccionados);
+        $this->assertNotContains((string) $provMantCarrera->id, $seleccionados);
+        $this->assertNotContains((string) $provMantGeneral->id, $seleccionados);
+    }
+
+    public function test_precarga_queda_vacia_si_carrera_solo_tiene_proveedores_de_mantenimiento(): void
+    {
+        $service = app(ProveedorService::class);
+
+        $service->registrarProveedor([
+            'razon_social' => 'Mantencion Exclusiva Inf Ltda',
+            'rut' => '76.201.201-1',
+            'correo' => 'mant@exclusiva.cl',
+            'tipo' => 'mantenimiento',
+            'activo' => true,
+            'carreras_ids' => [$this->carreraInformatica->id],
+        ]);
+
+        $this->actingAs($this->admin);
+
+        $component = Volt::test('pages.cotizaciones.index')
+            ->set('carrera_id', $this->carreraInformatica->id)
+            ->call('abrirModalSolicitud')
+            ->assertSet('proveedoresSeleccionados', [])
+            ->assertDontSee('Mantencion Exclusiva Inf Ltda')
+            ->assertSee('No hay proveedores activos de insumos (o ambos rubros)');
+    }
+
+    public function test_modal_cargar_cotizacion_solo_lista_proveedores_notificados_en_la_solicitud(): void
+    {
+        $service = app(ProveedorService::class);
+
+        $provEnviado = $service->registrarProveedor([
+            'razon_social' => 'Proveedor Notificado Enviado SpA',
+            'rut' => '76.301.301-1',
+            'correo' => 'enviado@prov.cl',
+            'tipo' => 'insumos',
+            'activo' => true,
+        ]);
+
+        $provFallido = $service->registrarProveedor([
+            'razon_social' => 'Proveedor Notificado Fallido Ltda',
+            'rut' => '76.302.302-2',
+            'correo' => 'fallido@prov.cl',
+            'tipo' => 'ambos',
+            'activo' => true,
+        ]);
+
+        $service->registrarProveedor([
+            'razon_social' => 'Proveedor No Invitado SpA',
+            'rut' => '76.303.303-3',
+            'correo' => 'noinvitado@prov.cl',
+            'tipo' => 'insumos',
+            'activo' => true,
+        ]);
+
+        $solicitud = SolicitudCotizacion::create([
+            'carrera_id' => $this->carreraInformatica->id,
+            'creada_por' => $this->admin->id,
+            'descripcion' => 'Conectores RJ45 Cat6',
+            'estado' => 'enviada',
+            'fecha_creacion' => now(),
+        ]);
+
+        EnvioCotizacion::create([
+            'solicitud_cotizacion_id' => $solicitud->id,
+            'proveedor_id' => $provEnviado->id,
+            'estado' => 'enviado',
+            'intentos' => 1,
+            'enviado_en' => now(),
+        ]);
+
+        EnvioCotizacion::create([
+            'solicitud_cotizacion_id' => $solicitud->id,
+            'proveedor_id' => $provFallido->id,
+            'estado' => 'fallido',
+            'intentos' => 1,
+            'error' => 'SMTP timeout',
+        ]);
+
+        Cotizacion::create([
+            'solicitud_cotizacion_id' => $solicitud->id,
+            'proveedor_id' => $provEnviado->id,
+            'monto_total' => 120000,
+            'fecha_recepcion' => now()->toDateString(),
+        ]);
+
+        $this->actingAs($this->admin);
+
+        Volt::test('pages.cotizaciones.index')
+            ->call('abrirCargaCotizacion', $solicitud->id)
+            ->assertSet('mostrarModalCargarCotizacion', true)
+            ->assertSee('Proveedor Notificado Enviado SpA (RUT: 76.301.301-1) — (Ya cotizó)')
+            ->assertSee('Proveedor Notificado Fallido Ltda (RUT: 76.302.302-2)')
+            ->assertDontSee('Proveedor No Invitado SpA');
+    }
+
+    public function test_boton_cargar_cotizacion_no_se_muestra_en_solicitud_borrador_sin_envios(): void
+    {
+        SolicitudCotizacion::create([
+            'carrera_id' => $this->carreraInformatica->id,
+            'creada_por' => $this->admin->id,
+            'descripcion' => 'Solicitud borrador sin envios',
+            'estado' => 'borrador',
+            'fecha_creacion' => now(),
+        ]);
+
+        $this->actingAs($this->admin);
+
+        Volt::test('pages.cotizaciones.index')
+            ->assertSee('Solicitud borrador sin envios')
+            ->assertDontSee('+ Cargar Cotización');
+    }
+
+    public function test_backend_rechaza_despacho_mantenimiento_y_registro_de_proveedor_no_notificado(): void
+    {
+        Queue::fake();
+
+        $proveedorService = app(ProveedorService::class);
+        $cotizacionService = app(CotizacionService::class);
+
+        $provInsumos = $proveedorService->registrarProveedor([
+            'razon_social' => 'Insumos Permitido SpA',
+            'rut' => '76.401.401-1',
+            'correo' => 'ok@insumos.cl',
+            'tipo' => 'insumos',
+            'activo' => true,
+        ]);
+
+        $provNoNotificado = $proveedorService->registrarProveedor([
+            'razon_social' => 'Insumos No Notificado SpA',
+            'rut' => '76.402.402-2',
+            'correo' => 'otro@insumos.cl',
+            'tipo' => 'insumos',
+            'activo' => true,
+        ]);
+
+        $provMantenimiento = $proveedorService->registrarProveedor([
+            'razon_social' => 'Mantenimiento Prohibido SpA',
+            'rut' => '76.403.403-3',
+            'correo' => 'mant@prohibido.cl',
+            'tipo' => 'mantenimiento',
+            'activo' => true,
+        ]);
+
+        $solicitud = $cotizacionService->crearSolicitudCotizacion([
+            'carrera_id' => $this->carreraInformatica->id,
+            'descripcion' => 'Compra de switches de acceso',
+        ], $this->admin);
+
+        // Rechazar registrar cotización sobre solicitud en borrador
+        try {
+            $cotizacionService->registrarCotizacion($solicitud, $provInsumos, 100000, now()->toDateString());
+            $this->fail('Debió rechazar registrar cotización en solicitud borrador.');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('proveedorCotizacionId', $e->errors());
+        }
+
+        // Rechazar despacho si incluye proveedor de mantenimiento
+        try {
+            $cotizacionService->despacharSolicitudProveedores($solicitud, [$provInsumos->id, $provMantenimiento->id]);
+            $this->fail('Debió rechazar despacho a proveedor de mantenimiento.');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('proveedores', $e->errors());
+        }
+
+        // Despachar solo a provInsumos funciona
+        $cotizacionService->despacharSolicitudProveedores($solicitud, [$provInsumos->id]);
+
+        // Rechazar registrar cotización de proveedor de mantenimiento
+        try {
+            $cotizacionService->registrarCotizacion($solicitud->fresh(), $provMantenimiento, 150000, now()->toDateString());
+            $this->fail('Debió rechazar cotización de proveedor de mantenimiento.');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('proveedorCotizacionId', $e->errors());
+        }
+
+        // Rechazar registrar cotización de proveedor de insumos que no fue notificado en esta solicitud
+        try {
+            $cotizacionService->registrarCotizacion($solicitud->fresh(), $provNoNotificado, 150000, now()->toDateString());
+            $this->fail('Debió rechazar cotización de proveedor no notificado.');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('proveedorCotizacionId', $e->errors());
+        }
     }
 }

@@ -92,9 +92,6 @@ new #[Layout('layouts.app')] class extends Component
         }
 
         $provs = Proveedor::paraCarrera((int) $this->carrera_id)->paraInsumos()->get();
-        if ($provs->isEmpty()) {
-            $provs = Proveedor::paraCarrera((int) $this->carrera_id)->get();
-        }
 
         $this->proveedoresSeleccionados = $provs->pluck('id')->map(fn ($id) => (string) $id)->toArray();
     }
@@ -114,12 +111,19 @@ new #[Layout('layouts.app')] class extends Component
                 'descripcion' => $this->descripcion,
             ], Auth::user());
 
+            $despachada = false;
             if (! empty($this->proveedoresSeleccionados)) {
                 $service->despacharSolicitudProveedores($solicitud, array_map('intval', $this->proveedoresSeleccionados));
+                $despachada = true;
             }
 
             $this->reset(['descripcion', 'proveedoresSeleccionados', 'mostrarModalSolicitud']);
-            session()->flash('mensaje', 'Solicitud de cotización creada y correos encolados para su envío a los proveedores.');
+            session()->flash(
+                'mensaje',
+                $despachada
+                    ? 'Solicitud de cotización creada y correos encolados para su envío a los proveedores.'
+                    : 'Solicitud de cotización creada en borrador (sin proveedores seleccionados para despacho).'
+            );
         } catch (ValidationException $e) {
             $this->setErrorBag($e->validator->getMessageBag());
         }
@@ -128,6 +132,9 @@ new #[Layout('layouts.app')] class extends Component
     public function abrirCargaCotizacion(int $solicitudId): void
     {
         Gate::authorize('create', Cotizacion::class);
+        $this->resetErrorBag();
+        $this->reset(['proveedorCotizacionId', 'montoCotizacion', 'archivoCotizacion']);
+        $this->fechaRecepcion = date('Y-m-d');
         $this->solicitudIdParaCotizacion = $solicitudId;
         $this->mostrarModalCargarCotizacion = true;
     }
@@ -250,7 +257,7 @@ new #[Layout('layouts.app')] class extends Component
                                 ">
                                     {{ ucfirst(str_replace('_', ' ', $solicitud->estado)) }}
                                 </span>
-                                @if($solicitud->estado !== 'adjudicada' && $solicitud->estado !== 'cancelada')
+                                @if($solicitud->estado !== 'borrador' && $solicitud->estado !== 'adjudicada' && $solicitud->estado !== 'cancelada' && $solicitud->envios->isNotEmpty())
                                     <button
                                         wire:click="abrirCargaCotizacion({{ $solicitud->id }})"
                                         class="px-3 py-1 bg-white border border-gray-300 hover:bg-gray-100 text-xs font-semibold rounded text-gray-700 shadow-sm"
@@ -400,26 +407,37 @@ new #[Layout('layouts.app')] class extends Component
                             </div>
                             <div class="max-h-48 overflow-y-auto border border-gray-300 rounded-md p-2 space-y-1 bg-gray-50">
                                 @php
-                                    $provsDisponibles = \App\Models\Proveedor::paraCarrera($this->carrera_id)->orderBy('razon_social')->get();
+                                    $provsDisponibles = \App\Models\Proveedor::with('carreras')
+                                        ->paraCarrera($this->carrera_id)
+                                        ->paraInsumos()
+                                        ->orderBy('razon_social')
+                                        ->get();
                                 @endphp
                                 @forelse($provsDisponibles as $prov)
                                     <label class="flex items-center text-xs text-gray-800 hover:bg-white p-1 rounded transition cursor-pointer">
                                         <input type="checkbox" wire:model="proveedoresSeleccionados" value="{{ $prov->id }}" class="rounded border-gray-300 text-red-600 shadow-sm mr-2">
                                         <span class="font-medium">{{ $prov->razon_social }}</span>
                                         <span class="text-gray-400 text-[11px] ml-1">({{ $prov->correo }})</span>
-                                        @if($prov->carreras->isNotEmpty())
-                                            <span class="ml-auto px-1.5 py-0.5 rounded text-[10px] bg-red-100 text-red-700 font-semibold shrink-0">
-                                                Carrera
-                                            </span>
-                                        @else
-                                            <span class="ml-auto px-1.5 py-0.5 rounded text-[10px] bg-gray-200 text-gray-700 font-semibold shrink-0">
-                                                General
-                                            </span>
-                                        @endif
+                                        <span class="ml-auto flex items-center gap-1 shrink-0">
+                                            @if($prov->tipo === 'ambos')
+                                                <span class="px-1.5 py-0.5 rounded text-[10px] bg-teal-100 text-teal-800 font-semibold">
+                                                    Ambos rubros
+                                                </span>
+                                            @endif
+                                            @if($prov->carreras->isNotEmpty())
+                                                <span class="px-1.5 py-0.5 rounded text-[10px] bg-red-100 text-red-700 font-semibold">
+                                                    Carrera
+                                                </span>
+                                            @else
+                                                <span class="px-1.5 py-0.5 rounded text-[10px] bg-gray-200 text-gray-700 font-semibold">
+                                                    General
+                                                </span>
+                                            @endif
+                                        </span>
                                     </label>
                                 @empty
                                     <p class="text-xs text-amber-700 p-2">
-                                        No hay proveedores activos asociados a esta carrera ni proveedores generales.
+                                        No hay proveedores activos de insumos (o ambos rubros) asociados a esta carrera ni proveedores generales.
                                     </p>
                                 @endforelse
                             </div>
@@ -445,14 +463,33 @@ new #[Layout('layouts.app')] class extends Component
                     </div>
 
                     <form wire:submit.prevent="guardarCotizacion" class="space-y-4">
+                        @php
+                            $solicitudActiva = $this->solicitudIdParaCotizacion
+                                ? SolicitudCotizacion::with(['envios.proveedor', 'cotizaciones'])->find($this->solicitudIdParaCotizacion)
+                                : null;
+                            $proveedoresNotificados = $solicitudActiva
+                                ? $solicitudActiva->envios
+                                    ->pluck('proveedor')
+                                    ->filter(fn ($p) => $p && $p->activo && in_array($p->tipo, ['insumos', 'ambos'], true))
+                                    ->unique('id')
+                                    ->sortBy('razon_social')
+                                    ->values()
+                                : collect();
+                            $proveedoresYaCotizaron = $solicitudActiva
+                                ? $solicitudActiva->cotizaciones->pluck('proveedor_id')->all()
+                                : [];
+                        @endphp
                         <div>
                             <label class="block text-xs font-semibold text-gray-700 uppercase">Proveedor Oferente *</label>
                             <select wire:model="proveedorCotizacionId" class="w-full border-gray-300 rounded-md shadow-sm text-sm">
                                 <option value="">Seleccione un proveedor...</option>
-                                @foreach(Proveedor::where('activo', true)->orderBy('razon_social')->get() as $p)
-                                    <option value="{{ $p->id }}">{{ $p->razon_social }} (RUT: {{ $p->rut }})</option>
+                                @foreach($proveedoresNotificados as $p)
+                                    <option value="{{ $p->id }}">{{ $p->razon_social }} (RUT: {{ $p->rut }}){{ in_array($p->id, $proveedoresYaCotizaron, true) ? ' — (Ya cotizó)' : '' }}</option>
                                 @endforeach
                             </select>
+                            @if($proveedoresNotificados->isEmpty())
+                                <p class="text-[11px] text-amber-700 mt-1">No hay proveedores de insumos o ambos rubros notificados para esta solicitud.</p>
+                            @endif
                             @error('proveedorCotizacionId') <span class="text-xs text-red-600">{{ $message }}</span> @enderror
                         </div>
 

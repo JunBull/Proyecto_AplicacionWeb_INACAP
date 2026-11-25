@@ -6,6 +6,7 @@ use App\Models\Carrera;
 use App\Models\Categoria;
 use App\Models\Equipo;
 use App\Models\Insumo;
+use App\Models\Subcategoria;
 use App\Models\Ubicacion;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -204,13 +205,34 @@ class PanoleroEtiquetasOptimizacionTest extends TestCase
         $this->assertNotNull($component->get('htmlLote'));
     }
 
-    public function test_validacion_limite_maximo_20_etiquetas_sla_07(): void
+    public function test_lote_acepta_30_equipos_y_valida_limite_maximo_100_etiquetas(): void
     {
         $this->actingAs($this->panolero);
 
-        // Crear 21 equipos para intentar un lote excedido
-        $idsEquipos = [];
-        for ($i = 1; $i <= 21; $i++) {
+        $idsEquipos30 = [];
+        for ($i = 1; $i <= 30; $i++) {
+            $eq = Equipo::create([
+                'codigo_barras' => sprintf('EQ-TAB-LNV-M11-%02d', $i),
+                'nombre' => 'Tablet Lenovo Tab M11',
+                'marca' => 'Lenovo',
+                'modelo' => 'Tab M11',
+                'numero_serie' => sprintf('HA19X%02d', $i),
+                'estado' => 'disponible',
+                'ubicacion_id' => $this->ubicacion->id,
+            ]);
+            $idsEquipos30[] = $eq->id;
+        }
+
+        // Lote de 30 etiquetas debe generarse sin error
+        Volt::test('pages.etiquetas.index')
+            ->set('seleccionadosEquipos', $idsEquipos30)
+            ->call('generarLote')
+            ->assertHasNoErrors()
+            ->assertSet('totalGeneradas', 30);
+
+        // 101 equipos excede el nuevo límite de 100
+        $idsEquipos101 = $idsEquipos30;
+        for ($i = 31; $i <= 101; $i++) {
             $eq = Equipo::create([
                 'codigo_barras' => sprintf('EQ-TEST-LIMIT-%03d', $i),
                 'nombre' => "Equipo Test Límite #{$i}",
@@ -220,14 +242,135 @@ class PanoleroEtiquetasOptimizacionTest extends TestCase
                 'estado' => 'disponible',
                 'ubicacion_id' => $this->ubicacion->id,
             ]);
-            $idsEquipos[] = $eq->id;
+            $idsEquipos101[] = $eq->id;
         }
 
         Volt::test('pages.etiquetas.index')
-            ->set('seleccionadosEquipos', $idsEquipos)
+            ->set('seleccionadosEquipos', $idsEquipos101)
             ->call('generarLote')
             ->assertHasErrors(['lote'])
-            ->assertSee('El tamaño máximo institucional por tirada es de 20 etiquetas (SLA-07)');
+            ->assertSee('El tamaño máximo permitido por tirada es de 100 etiquetas');
+    }
+
+    public function test_filtros_en_cascada_checkbox_maestro_y_solo_pendientes(): void
+    {
+        $this->actingAs($this->panolero);
+
+        $catComputo = Categoria::create([
+            'nombre' => 'Cómputo Móvil',
+            'slug' => 'computo-movil',
+        ]);
+        $subTablets = Subcategoria::create([
+            'categoria_id' => $catComputo->id,
+            'nombre' => 'Tablets',
+            'slug' => 'tablets',
+            'codigo_prefijo' => 'EQ-TAB',
+            'orden' => 1,
+        ]);
+
+        $tab1 = Equipo::create([
+            'codigo_barras' => 'EQ-TAB-LNV-M11-01',
+            'nombre' => 'Tablet Lenovo Tab M11',
+            'marca' => 'Lenovo',
+            'modelo' => 'Tab M11',
+            'numero_serie' => 'HA19X01',
+            'estado' => 'disponible',
+            'categoria_id' => $catComputo->id,
+            'subcategoria_id' => $subTablets->id,
+            'etiqueta_impresa' => false,
+            'ubicacion_id' => $this->ubicacion->id,
+        ]);
+
+        $tab2 = Equipo::create([
+            'codigo_barras' => 'EQ-TAB-LNV-M11-02',
+            'nombre' => 'Tablet Lenovo Tab M11',
+            'marca' => 'Lenovo',
+            'modelo' => 'Tab M11',
+            'numero_serie' => 'HA19X02',
+            'estado' => 'disponible',
+            'categoria_id' => $catComputo->id,
+            'subcategoria_id' => $subTablets->id,
+            'etiqueta_impresa' => true,
+            'ubicacion_id' => $this->ubicacion->id,
+        ]);
+
+        // Cascada Categoría -> Subcategoría -> Familia/Modelo + Solo pendientes
+        $component = Volt::test('pages.etiquetas.index')
+            ->set('filtroCategoriaId', (string) $catComputo->id)
+            ->set('filtroSubcategoriaId', (string) $subTablets->id)
+            ->assertSee('EQ-TAB-LNV-M11 · Tablet Lenovo Tab M11')
+            ->set('filtroFamilia', 'Tablet Lenovo Tab M11||Tab M11')
+            ->assertSee('EQ-TAB-LNV-M11-01')
+            ->assertSee('EQ-TAB-LNV-M11-02')
+            ->assertDontSee('Switch Cisco Catalyst 2960');
+
+        // Solo pendientes oculta tab2
+        $component->set('soloPendientes', true)
+            ->assertSee('EQ-TAB-LNV-M11-01')
+            ->assertDontSee('EQ-TAB-LNV-M11-02');
+
+        // Checkbox maestro selecciona todas las pendientes visibles y al imprimir marca etiqueta_impresa = true
+        $component->call('toggleSeleccionarTodosVisibles')
+            ->assertSet('seleccionadosEquipos', [(string) $tab1->id])
+            ->call('generarLote')
+            ->assertSet('totalGeneradas', 1)
+            ->call('imprimirLote')
+            ->assertDispatched('imprimir-etiquetas-lote');
+
+        $this->assertTrue($tab1->fresh()->etiqueta_impresa);
+        $this->assertNotNull($tab1->fresh()->etiqueta_impresa_en);
+    }
+
+    public function test_insumos_permiten_multiples_copias_y_validan_total_combinado(): void
+    {
+        $this->actingAs($this->panolero);
+
+        $component = Volt::test('pages.etiquetas.index')
+            ->set('seleccionadosInsumos', [$this->insumo1->id])
+            ->set("copiasInsumos.{$this->insumo1->id}", 10)
+            ->call('generarLote')
+            ->assertHasNoErrors()
+            ->assertSet('totalGeneradas', 10);
+
+        $this->assertCount(10, $component->get('itemsLote'));
+    }
+
+    public function test_busqueda_y_reimpresion_por_numero_de_serie_y_exclusion_dados_de_baja(): void
+    {
+        $this->actingAs($this->panolero);
+
+        $tablet = Equipo::create([
+            'codigo_barras' => 'EQ-TAB-LNV-M11-04',
+            'nombre' => 'Tablet Lenovo Tab M11',
+            'marca' => 'Lenovo',
+            'modelo' => 'Tab M11',
+            'numero_serie' => 'HA19X04',
+            'estado' => 'disponible',
+            'etiqueta_impresa' => true,
+            'ubicacion_id' => $this->ubicacion->id,
+        ]);
+
+        Equipo::create([
+            'codigo_barras' => 'EQ-BAJA-01',
+            'nombre' => 'Equipo Dado de Baja',
+            'marca' => 'HP',
+            'modelo' => 'Old',
+            'numero_serie' => 'SN-BAJA-99',
+            'estado' => 'dado_de_baja',
+            'ubicacion_id' => $this->ubicacion->id,
+        ]);
+
+        // Dado de baja excluido del listado normal (M3), búsqueda por S/N en caja izquierda y en escáner superior (M2)
+        Volt::test('pages.etiquetas.index')
+            ->assertDontSee('Equipo Dado de Baja')
+            ->set('busquedaEquipo', 'HA19X04')
+            ->assertSee('EQ-TAB-LNV-M11-04')
+            ->assertDontSee('Switch Cisco Catalyst 2960')
+            ->set('codigoLectura', 'HA19X04')
+            ->call('leerCodigoBarras')
+            ->assertHasNoErrors()
+            ->assertSee('Recuperado por N° Serie')
+            ->assertSee('EQ-TAB-LNV-M11-04');
     }
 
     public function test_descarga_lote_en_formato_txt(): void
